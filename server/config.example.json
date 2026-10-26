@@ -1,0 +1,18 @@
+{
+  "_说明": "复制成 server/config.local.json 再填真值。config.local.json 已在 .gitignore 里，永远不会进仓库。",
+  "_为什么": "赛事规则：API 密钥不得出现在公开仓库，须走环境变量或本机配置。",
+
+  "ENABLE_LLM": true,
+  "LLM_BASE_URL": "https://api.deepseek.com",
+  "LLM_MODEL": "deepseek-chat",
+  "LLM_API_KEY": "在这里填你自己的 Key（留空则 AI 讲解/出题走平台出口或如实说不可用）",
+  "LLM_TIMEOUT": 45,
+  "LLM_TEMPERATURE": 0.2,
+  "LLM_MAX_TOKENS": 8000,
+  "LLM_THINK_TOKENS": 6000,
+  "LLM_MOCK": false,
+
+  "BCZ_ACCESS_TOKEN": "百词斩词条接口用的 token，没有就留空（配图/词根会如实显示拉不到）",
+
+  "_平台出口": "不填 Key 也能用：模型路由会自动走 WorkBuddy / Trae 这两家平台出口，界面如实标注用的是谁。"
+}
