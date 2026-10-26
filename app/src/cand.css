@@ -1,0 +1,8 @@
+/* 候选卡：标题行右侧放动作，列表本身限高内滚
+   为什么：6 条候选每条约 158px，按钮放在列表最底下时实测 cy=1031 —— 屏幕外，点不到。
+   按钮跟着标题走，无论候选几条都在眼前；列表内滚，页面不再被拉长。 */
+.gcand .chd{align-items:center}
+.gcand .chd .chdacts{margin-left:auto;display:flex;align-items:center;gap:9px}
+.gcand .chd .chdacts em{font-style:normal;font-size:11.5px;color:var(--tx3);font-family:ui-monospace,Consolas,monospace}
+.gclist{display:flex;flex-direction:column;gap:9px;max-height:min(52vh,440px);overflow-y:auto;padding-right:4px;scrollbar-width:thin}
+.gclist .gco{margin:0}

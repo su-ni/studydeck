@@ -1,0 +1,1399 @@
+/* ============================================================
+   动效层 v6
+   ------------------------------------------------------------
+   规矩只有三条，别加第四条：
+
+   01 时间分四档，不许随手写数字
+      --t1 90ms   按下、悬停这种「手感反馈」，慢一点就觉得黏
+      --t2 160ms  颜色、边框、底色切换
+      --t3 240ms  展开 / 收起 / 抽屉 / 面板
+      --t4 320ms  整块内容进场（换页、换题组）
+
+   02 缓动分两种
+      --ease   出去的那半（cubic-bezier(.22,.61,.36,1)）—— 快出慢收
+      --eo     iOS 那种两头都收的（cubic-bezier(.4,0,.2,1)）—— 给位移用
+
+   03 位移一律小。6px 够了。谁在界面上飞 40px 谁就是廉价动画。
+      「一色一职」同样管着动效：琥珀只在「现在该点的」上发亮，
+      所以脉冲只给当前那一项，不给整块区域。
+
+   全局 prefers-reduced-motion 在 theme.css:152 已经兜住了 ——
+   这里不用再写一遍，写了反而会让 !important 打架。
+   ============================================================ */
+
+:root {
+  --t1: 90ms;
+  --t2: 160ms;
+  --t3: 240ms;
+  --t4: 320ms;
+  --eo: cubic-bezier(.4, 0, .2, 1);
+  --eo-back: cubic-bezier(.34, 1.4, .64, 1);  /* 只给「弹一下」用，别滥用 */
+}
+
+/* ---------------- 进场 ----------------
+   pagein 只有淡入 + 6px 上浮（theme.css:150 已定义），
+   这里给「页内成块出现的东西」补一层：卡片、纸、行。
+
+   注意：不是所有块都从 0 开始动。一次进场错峰 24ms 就够看出先后，
+   超过 6 个就不再延迟 —— 否则第 10 张卡要等 240ms 才露头，像卡住了。 */
+@keyframes rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes fadeOnly {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.pagein > .kpi-mn,
+.pagein > .sect-mn,
+.pagein > .blkcard-mn,
+.pagein > .paper-mn,
+.pagein > .qspread-mn,
+.pagein > .twocol-mn,
+.pagein > .srcs-mn,
+.pagein > .cgrid-mn,
+.pagein > .verdict-mn {
+  animation: rise var(--t4) var(--ease) both;
+}
+.pagein > *:nth-child(1) { animation-delay: 0ms; }
+.pagein > *:nth-child(2) { animation-delay: 24ms; }
+.pagein > *:nth-child(3) { animation-delay: 48ms; }
+.pagein > *:nth-child(4) { animation-delay: 72ms; }
+.pagein > *:nth-child(5) { animation-delay: 96ms; }
+.pagein > *:nth-child(6) { animation-delay: 120ms; }
+.pagein > *:nth-child(n+7) { animation-delay: 144ms; }
+
+/* ---------------- 顶栏 / 侧栏 ----------------
+   导航项 hover 时那 2.5px 琥珀竖条不是「出现」，是从 0 长到 17px。
+   用 transform: scaleY 而不是改 height —— 只改 transform 不触发重排。 */
+.nv::before {
+  transform: scaleY(0);
+  transform-origin: center;
+  transition: transform var(--t2) var(--eo), background-color var(--t2) var(--ease);
+}
+.nv.on::before { transform: scaleY(1); }
+.nv { transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease); }
+.nv .ic { transition: color var(--t2) var(--ease), opacity var(--t2) var(--ease), transform var(--t3) var(--eo); }
+.nv:hover .ic { transform: translateY(-1px); }
+.nv.on .ic { transform: none; }
+.nv .cn { transition: color var(--t2) var(--ease); }
+
+/* 「接着学」那张底卡：hover 时条子微微发亮，不位移（位置一动就像要跳走） */
+.railbt { transition: border-color var(--t3) var(--ease), background-color var(--t3) var(--ease); }
+.railbt:hover { border-color: var(--line2); background: var(--card2); }
+.railbt .m i { transition: width var(--t4) var(--ease); }
+
+/* 顶栏的 pill：hover 只提一档底色，不做位移 */
+.pill { transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), color var(--t2) var(--ease); }
+.pill:hover { border-color: var(--line2); }
+.pill.act:hover { border-color: #6A4E18; }
+
+/* ---------------- 按钮 ----------------
+   按下要有「缩一下」的手感 —— 0.97，不是 0.9。
+   0.9 看着像按钮塌了；0.97 只是被按了一下。 */
+.pbtn-mn {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease),
+              color var(--t2) var(--ease), transform var(--t1) var(--eo),
+              box-shadow var(--t2) var(--ease);
+  will-change: transform;
+}
+.pbtn-mn:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 4px 12px -6px rgba(0,0,0,.55); }
+.pbtn-mn:active:not(:disabled) { transform: scale(.97) translateY(0); transition-duration: var(--t1); }
+.pbtn-mn:disabled { transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease); }
+
+/* 按钮里那个「可点」的琥珀发光只在实心按钮上，ghost 不给 —— 一色一职 */
+.pbtn-mn:not(.ghost):hover:not(:disabled) { box-shadow: 0 6px 18px -8px rgba(255,176,32,.55); }
+
+/* ---------------- 题源 / 分段 chip ----------------
+   chip 被选中时不是「换个底色」，是底色 + 描边 + 文字色一起走，
+   三个属性同时过渡才不显得生硬。 */
+.schip-mn {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease),
+              color var(--t2) var(--ease), transform var(--t1) var(--eo);
+}
+.schip-mn:hover { border-color: var(--line2); }
+.schip-mn:active { transform: scale(.98); }
+.schip-mn .dot { transition: box-shadow var(--t3) var(--ease), transform var(--t2) var(--eo); }
+.schip-mn.on .dot { transform: scale(1.15); }
+.schip-mn b, .schip-mn i { transition: color var(--t2) var(--ease); }
+
+/* 分段抽屉：铺开的时候一行一行淡进来，别整块闪现 */
+@keyframes rowIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+.srcbar-mn > * { animation: rowIn var(--t3) var(--ease) both; }
+.srcbar-mn > *:nth-child(n+9) { animation-delay: 0ms; }
+.srcbar-mn > *:nth-child(1) { animation-delay: 0ms; }
+.srcbar-mn > *:nth-child(2) { animation-delay: 18ms; }
+.srcbar-mn > *:nth-child(3) { animation-delay: 36ms; }
+.srcbar-mn > *:nth-child(4) { animation-delay: 54ms; }
+.srcbar-mn > *:nth-child(5) { animation-delay: 72ms; }
+.srcbar-mn > *:nth-child(6) { animation-delay: 90ms; }
+.srcbar-mn > *:nth-child(7) { animation-delay: 108ms; }
+.srcbar-mn > *:nth-child(8) { animation-delay: 126ms; }
+
+/* ---------------- 选项 ----------------
+   选项是这个界面上按得最多的东西。它必须：
+     · 悬停时底色提一档（还没选，但已经「湿」了）
+     · 选中时左边那条 3px 琥珀从 0 长出来，不是突然出现
+     · 判完上色要慢一档（160→240），让人看清哪一行变绿 */
+.opt-mn {
+  position: relative;
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease),
+              color var(--t2) var(--ease), transform var(--t1) var(--eo),
+              box-shadow var(--t3) var(--ease);
+}
+.opt-mn::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 6px; bottom: 6px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--act);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--t2) var(--eo);
+}
+.opt-mn:hover:not(:disabled) { background: #EDE5D3; }
+.opt-mn:active:not(:disabled) { transform: scale(.995); }
+.opt-mn.on::before, .opt-mn.ok::before, .opt-mn.no::before { transform: scaleX(1); }
+.opt-mn.ok::before { background: #2E8A57; }
+.opt-mn.no::before { background: #C4492A; }
+.opt-mn.on { box-shadow: none; }   /* 老规则那条 inset 3px 交给 ::before，避免两条竖条叠一起 */
+.opt-mn .l { transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease); }
+.opt-mn.ok, .opt-mn.no { transition-duration: var(--t3); }
+
+/* 判完那一下：只让「变了色的」那一格轻轻跳一下，别整组抖 */
+@keyframes optPop {
+  0% { transform: scale(1); }
+  45% { transform: scale(1.012); }
+  100% { transform: scale(1); }
+}
+.opt-mn.ok, .opt-mn.no { animation: optPop var(--t3) var(--eo); }
+
+/* ---------------- 判分反馈 / 讲题 ----------------
+   「讲这题」点开是整块长出来 —— 用高度不好做（内容不定高），
+   所以用 clip 式的淡出上浮：看起来像从纸里被推出来的。 */
+@keyframes unfold {
+  from { opacity: 0; transform: translateY(-6px); }
+  to { opacity: 1; transform: none; }
+}
+.exp-mn,
+.qfb-mn { animation: unfold var(--t3) var(--ease) both; }
+.exp-mn .expart-mn { animation: rise var(--t3) var(--ease) both; }
+.exp-mn .expart-mn:nth-child(1) { animation-delay: 0ms; }
+.exp-mn .expart-mn:nth-child(2) { animation-delay: 40ms; }
+.exp-mn .expart-mn:nth-child(3) { animation-delay: 80ms; }
+.exp-mn .expart-mn:nth-child(4) { animation-delay: 120ms; }
+.exp-mn .quote-mn:nth-child(n+5) { animation-delay: 120ms; }
+
+/* 判定徽标：淡入 + 轻微放大，不旋转（旋转是廉价的） */
+@keyframes stampIn {
+  from { opacity: 0; transform: scale(.92); }
+  to { opacity: 1; transform: none; }
+}
+.vd-mn { animation: stampIn var(--t3) var(--eo-back) both; }
+.qj { animation: stampIn var(--t3) var(--eo-back) both; }
+
+/* 讲得对 / 讲错了：按下去的那颗琥珀底从中心化开 */
+.vb-mn { transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), color var(--t2) var(--ease), transform var(--t1) var(--eo); }
+.vb-mn:active { transform: scale(.97); }
+
+/* ---------------- 进度条 / 数字 ----------------
+   所有条子统一：宽度从 0 长到目标值，一次 320ms。
+   数字本身不滚动计数 —— 那是装饰不是信息，
+   但切页时那一排 38px 数字要淡进来，否则看着像「先有结论后有几个字」。 */
+.bar-mn .tr-mn i,
+.li-mn .tr-mn i,
+.kpi-mn .m i,
+.cc-mn .in .tr-mn i,
+.pc-mn .f .tr-mn i,
+.ws-bar i,
+.cal-mn i {
+  transition: width var(--t4) var(--ease), height var(--t4) var(--ease),
+              background-color var(--t3) var(--ease), transform var(--t3) var(--eo);
+}
+@keyframes growW {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+.bar-mn .tr-mn i,
+.kpi-mn .m i,
+.li-mn .tr-mn i { transform-origin: left; animation: growW var(--t4) var(--ease) both; }
+
+.kpi-mn > * { transition: background-color var(--t2) var(--ease); }
+.kpi-mn > *:hover { background: var(--card); }
+
+/* 热力格：进场时分批淡入，看着像一天天长出来；hover 轻微放大 */
+.cal-mn i { animation: fadeOnly var(--t3) var(--ease) both; }
+.cal-mn i:hover { transform: scale(1.25); }
+.cal-mn i:nth-child(n) { animation-delay: calc(var(--i, 0) * 1ms); }
+
+/* ---------------- 卡片 / 行 ----------------
+   卡片 hover 只换边框色 + 底色，不位移。
+   一整页几十张卡都往上浮，鼠标划过像在抖。 */
+.cc-mn, .pc-mn, .src-mn, .blkcard-mn, .sc-mn, .cut-mn, .mini-mn .m {
+  transition: border-color var(--t2) var(--ease), background-color var(--t2) var(--ease),
+              transform var(--t3) var(--eo), box-shadow var(--t3) var(--ease);
+}
+.cc-mn:hover, .pc-mn:hover { border-color: var(--line2); transform: translateY(-2px); box-shadow: 0 10px 26px -18px rgba(0,0,0,.7); }
+.src-mn:hover, .cut-mn:hover { border-color: var(--line2); }
+.src-mn.clickable:hover { background: var(--card2); }
+
+/* 课程封面：hover 时那张图轻轻推近（scale 1.02），卡不位移 */
+.cc-mn .cv { overflow: hidden; }
+.cc-mn .cv { transition: transform var(--t3) var(--eo); }
+.cc-mn:hover .cv { transform: scale(1.02); }
+.cc-mn .cv .bd { transition: opacity var(--t2) var(--ease); }
+.cc-mn:hover .cv .bd { opacity: 1; }
+
+/* 表格行（FxRow / tdrow / qcell）hover 时提一档底色，让人知道「这一行是一件事」 */
+.tdrow-mn, .fxrow-mn { transition: background-color var(--t2) var(--ease); }
+.tdrow-mn:hover, .fxrow-mn:hover { background: var(--card); }
+.tdrow-mn .idx { transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease), transform var(--t2) var(--eo); }
+.tdrow-mn:hover .idx { transform: scale(1.08); }
+
+/* 题组里那一道题：整格 hover 时，题号那个小方块亮一点 —— 指认「你现在指着这一道」 */
+.qcell-mn { transition: background-color var(--t2) var(--ease); }
+.qcell-mn:hover { background: rgba(255,255,255,.018); }
+.qcell-mn .qh .qn { transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease); }
+.qcell-mn:hover .qh .qn { background: var(--act); color: var(--onact); }
+.qcell-mn.done:hover .qh .qn { background: var(--act); color: var(--onact); }
+.qh .qlink { transition: color var(--t2) var(--ease), border-color var(--t2) var(--ease), background-color var(--t2) var(--ease), transform var(--t1) var(--eo); }
+.qh .qlink:active { transform: scale(.96); }
+
+/* ---------------- 课表 ----------------
+   今天那一列是琥珀描边：进场时让它呼吸一次，提醒「这是今天」。
+   只呼吸两次，不停下来 —— 常驻动的东西会分心。 */
+@keyframes onceGlow {
+  0%, 100% { box-shadow: none; }
+  50% { box-shadow: 0 0 0 3px rgba(255,176,32,.12); }
+}
+.wcol-mn.today { animation: onceGlow 1200ms var(--ease) 2; }
+.wcol-mn .blk-mn { transition: border-left-color var(--t2) var(--ease), background-color var(--t2) var(--ease), transform var(--t2) var(--eo); }
+.wcol-mn .blk-mn:hover { background: var(--card2); transform: translateX(1px); }
+.wcol-mn .blk-mn.void:hover { transform: none; background: transparent; }
+
+/* ---------------- 对开纸 / 组卷 ----------------
+   两张纸出现时，不是同时出现：右边慢 60ms，像被风翻开的那一页。 */
+.qspread-mn > .leaf-mn,
+.spread-mn > .leaf-mn { animation: rise var(--t4) var(--ease) both; }
+.qspread-mn > .leaf-mn:nth-child(2),
+.spread-mn > .leaf-mn:nth-child(2) { animation-delay: 60ms; }
+.qspread-mn > .leaf-mn:nth-child(3),
+.spread-mn > .leaf-mn:nth-child(3) { animation-delay: 120ms; }
+
+/* 换一组题 / 换一卷：纸整体重排，重新进场 */
+.qspread-mn, .spread-mn { animation: fadeOnly var(--t3) var(--ease); }
+
+/* ---------------- 空态 / 加载 ----------------
+   空态不要「砰」地出现 —— 它是「这里现在没有东西」，
+   比内容更轻，所以更慢更淡。 */
+.empty-mn { animation: fadeOnly var(--t4) var(--ease) both; }
+
+/* 正在读 / 正在出题：一行字 + 一条扫光，别转圈（转圈是「不知道在干嘛」） */
+@keyframes sweep {
+  from { background-position: -120% 0; }
+  to { background-position: 220% 0; }
+}
+.loading-mn {
+  background: linear-gradient(90deg, var(--tx3) 0%, var(--tx2) 45%, var(--tx3) 100%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: sweep 1400ms linear infinite;
+}
+
+/* ---------------- 抽屉 / 模态 ----------------
+   已有的候选词浮层、模型选择器分别在 cand.css / modelpicker.css 里，
+   这里只给 v6 自己用到的三种：分段抽屉、设置页的输入行、画布顶栏。 */
+.inp-mn { transition: border-color var(--t2) var(--ease), background-color var(--t2) var(--ease), box-shadow var(--t2) var(--ease); }
+.inp-mn:focus { box-shadow: 0 0 0 3px rgba(255,176,32,.12); }
+
+/* 设置页那些「能用 / 待配」的小标：状态变了才有动效，切换时闪一下 */
+@keyframes tagFlash {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.08); }
+  100% { transform: scale(1); }
+}
+.tg-mn { transition: background-color var(--t3) var(--ease), color var(--t3) var(--ease); }
+.tg-mn.flash { animation: tagFlash var(--t3) var(--eo); }
+
+/* ---------------- 滚动提示 ----------------
+   往下还有内容时，纸的底边有一条淡淡的阴影 —— 滚动它才淡出。
+   纯 CSS 做不到「滚到底就消失」，所以这里只给静态的一层，
+   真正的消失交给 :has 不现实，宁可不要这条 —— 宁可少一个效果，也不做一个假的。 */
+
+/* ---------------- 画布 ----------------
+   画布自己有 reactflow 的一套，这里只统一「顶栏按钮」的手感。 */
+.cvbtn { transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), color var(--t2) var(--ease), transform var(--t1) var(--eo); }
+.cvbtn:active:not([disabled]) { transform: scale(.96); }
+.cvbtn.on { transition-duration: var(--t2); }
+
+/* ---------------- 兜底 ----------------
+   任何 v6 里带 transition 的元素，都不许在 layout 属性上过渡
+   （width/height 除非是条子那种一维动画）。
+   这一条对后来的人有用：加动效时先问「我在动的是 transform 还是 layout」。 */
+
+/* ---------------- 顶栏标题：切页重进 ----------------
+   标题换了就重新播一次 —— 4px 上浮 + 淡入，160ms。
+   不做「打字机」「逐字出现」：那是演示用的，天天看不耐烦。 */
+@keyframes titleIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: none; }
+}
+.top h2, .top .nt { animation: titleIn var(--t2) var(--ease) both; }
+.top .nt { animation-delay: 30ms; }
+
+/* 导航按下：0.97 缩一下，弹回来。130ms 由 JS 抓，和 --t1 对齐 */
+.nv.press { transform: scale(.97); }
+.nv { will-change: transform; }
+
+/* ---------------- 课堂：目录 / 右栏 展开收起 ----------------
+   原来用 display:none 硬切 —— display 不能过渡，所以什么动效都没有。
+   改成「栅格列宽过渡 + 内部淡入」：
+     列宽 240ms 走 --eo（两头收），里面的内容慢 60ms 才淡出来，
+   否则列还没拉宽，字就先挤成一团再散开。 */
+.cls2 { transition: grid-template-columns 260ms var(--eo); }
+.cls2 > .cls2-toc,
+.cls2 > .cls2-side {
+  transition: opacity var(--t3) var(--ease), transform var(--t3) var(--eo);
+  will-change: opacity, transform;
+}
+/* 收起来的那一列不能 display:none（那样过渡就断了），只能宽 0 + 溢出裁掉 */
+.cls2.toc-shut > .cls2-toc {
+  display: flex;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(-8px);
+  pointer-events: none;
+  padding: 0;
+  border: 0;
+}
+.cls2:not(.side-open) > .cls2-side {
+  display: flex;
+  width: 0;
+  min-width: 0;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateX(8px);
+  pointer-events: none;
+  padding: 0;
+}
+/* 展开的那一侧：内容晚 60ms 淡进来 */
+.cls2:not(.toc-shut) > .cls2-toc { opacity: 1; transform: none; transition-delay: 60ms; }
+.cls2.side-open > .cls2-side { opacity: 1; transform: none; transition-delay: 60ms; }
+
+/* 窄屏还是硬切：那里宽度本来就不够，动画只会让人觉得卡 */
+@media (max-width: 1180px) {
+  .cls2, .cls2 > .cls2-toc, .cls2 > .cls2-side { transition: none; }
+  .cls2 > .cls2-side { display: none; }
+  .cls2.toc-shut > .cls2-toc { display: none; }
+}
+
+/* ---------------- 换内容就重播一次 ----------------
+   切题源、换卷、换作文题之后，纸的 DOM 没变（还是那张纸），
+   但里面的东西全换了。这时候要给纸一个 key 让它重新挂载，
+   或者靠这条规则：带 .replay 类的容器每次挂载都播一遍。 */
+.replay { animation: rise var(--t4) var(--ease) both; }
+
+/* 交卷 / 批改 / 备份这类「点完要等」的动作：
+   正在跑的那颗按钮不许再被点，但也不该只是变灰 ——
+   让它左边缘有一条来回扫的琥珀光，说明「在跑，不是坏了」。 */
+@keyframes btnBusy {
+  from { background-position: -160% 0; }
+  to { background-position: 260% 0; }
+}
+.pbtn-mn.busy,
+.pbtn-mn:disabled.busy {
+  color: var(--act2);
+  border-color: #5B4416;
+  background-image: linear-gradient(100deg, transparent 38%, rgba(255,176,32,.18) 50%, transparent 62%);
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  animation: btnBusy 1200ms linear infinite;
+}
+
+/* 正在读 / 正在出题那行字，走 .loading-mn（motion.css 上半段已定义） */
+
+/* =========================================================================
+   骨架屏：料没到之前先把位置占住
+   =========================================================================
+   原来全站的加载态都是一行灰字（「正在读…」「正在出题…」），
+   分不清是在读、是卡住、还是坏了。这里给一个会呼吸的壳：
+   形状照真内容的尺寸画，数据到了直接换上来，布局不跳。 */
+
+@keyframes skelSweep {
+  from { background-position: -180% 0; }
+  to   { background-position: 280% 0; }
+}
+
+.skel-mn {
+  border-radius: 5px;
+  background-color: var(--card3);
+  background-image: linear-gradient(100deg,
+    transparent 32%,
+    rgba(255, 176, 32, .085) 46%,
+    rgba(251, 247, 239, .05) 52%,
+    transparent 66%);
+  background-size: 260% 100%;
+  background-repeat: no-repeat;
+  animation: skelSweep 1450ms var(--ease) infinite;
+}
+/* 纸上的骨架要换成纸的底色，不然一块块深灰压在米白上，比空着还脏 */
+.paper-mn .skel-mn,
+.skel-paper-mn .skel-mn {
+  background-color: var(--paper3);
+  background-image: linear-gradient(100deg,
+    transparent 32%,
+    rgba(255, 255, 255, .7) 48%,
+    transparent 66%);
+}
+
+.skel-mn.k { width: 42%; height: 9px; }
+.skel-mn.v { width: 64%; height: 30px; margin-top: 12px; border-radius: 7px; }
+.skel-mn.s { width: 80%; height: 9px; margin-top: 12px; }
+
+/* 骨架整体淡入，别让第一帧就闪一块灰 */
+.kpi-mn > *:has(> .skel-mn) { animation: fadeOnly 220ms var(--ease) both; }
+
+/* 骨架 -> 真内容：真内容用 fadeRise 顶上来，接住这一下 */
+@keyframes fadeRise {
+  from { opacity: 0; transform: translateY(5px); }
+  to   { opacity: 1; transform: none; }
+}
+.swap-in { animation: fadeRise var(--t3) var(--ease) both; }
+
+/* =========================================================================
+   收起也要有动画
+   =========================================================================
+   展开有动画、收起没有，是因为收起时元素直接从 DOM 里删掉了
+   （React 卸载 = 没有过渡可播）。这里用的是「先播完再删」：
+   .closing 由组件挂上，播完 180ms 后才真正移除。 */
+
+@keyframes collapseOut {
+  from { opacity: 1; transform: none; max-height: var(--ch, 1200px); }
+  to   { opacity: 0; transform: translateY(-4px); max-height: 0; }
+}
+.closing {
+  overflow: hidden;
+  animation: collapseOut 190ms var(--ease) both;
+  pointer-events: none;
+}
+
+/* 树形目录：折起一组 */
+@keyframes foldShut {
+  from { opacity: 1; transform: none; }
+  to   { opacity: 0; transform: translateY(-3px); }
+}
+.cls2-toc .ch.closing > * { animation: foldShut 190ms var(--ease) both; }
+
+/* =========================================================================
+   画布：节点 / 工具条 / 菜单 / 库卡片
+   -------------------------------------------------------------------------
+   画布这一块的边界比别处严，动手前先看清楚三条：
+
+   04 进场动画的 fill-mode 一律 backwards，不用 forwards/both：
+      后者会把最后一帧焊在元素上，动画层的优先级高于声明层，
+      结果 :hover 的 transform 从此失效（卡 hover 那一版就是这么来的）。
+
+   01 别在 .react-flow__node 上做 transform 过渡。ReactFlow 用行内 transform
+      摆节点（translate(x,y)），你再给外面加一条 transition:transform，拖节点
+      就变成甩出去的橡皮筋 —— 松手了还在飘。节点的位移一律不管，只动颜色。
+   02 .cvnode 也不能 scale。它 width/height 100% 挂在 node 壳上，缩放会把
+      字、边框、box-shadow 一起放大，看着像「这个节点卡了一下」。
+      要「出来了」的感觉就用 opacity + 2~4px 位移，别动宿主本身。
+   03 拖拽态（.dragging）必须把悬停和过渡关掉。拖着走的时候一路刮过去，
+      一排节点集体闪亮 —— 那不是动效，那是噪音。
+   ========================================================================= */
+
+/* 正在拖的那个：只给影子加重量 + 边框提亮，不动位置（见上 01/02）。
+   同时把过渡全关 —— 拖的过程中 hover 态一档一档追上来会抖。 */
+.cvstage .react-flow__node.dragging .cvnode {
+  border-color: var(--act2);
+  box-shadow: 0 14px 30px -14px #000e;
+  transition: none;
+}
+.cvstage .react-flow__node.dragging .cvntool { transition: none; }
+
+/* 选中那一下：光晕扫一圈就走，500ms。
+   不做常亮呼吸 —— 「我在这儿」说一次就够了，一直闪是廉价动画。 */
+@keyframes cvNodePop {
+  from { box-shadow: 0 0 0 0 rgba(255, 176, 32, .34); }
+  to   { box-shadow: 0 0 0 7px rgba(255, 176, 32, 0); }
+}
+.cvstage .react-flow__node.selected .cvnode:not(.d0) {
+  outline: 2px solid var(--act);
+  outline-offset: 2px;
+  animation: cvNodePop .5s var(--eo) backwards;
+  transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease);
+}
+
+/* 悬停工具条：2px 上浮淡入。
+   原来 app.css 那条是写死的 .12s ease，这里换成 --t1/--ease，跟全局对齐。 */
+.cvnode .cvntool,
+.cvstage .cvntool.float {
+  transition:
+    opacity var(--t1) var(--ease),
+    transform var(--t1) var(--eo),
+    background-color var(--t2) var(--ease),
+    border-color var(--t2) var(--ease),
+    box-shadow var(--t2) var(--ease);
+}
+.cvntool button {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvntool button:active:not([disabled]) { transform: scale(.9); }
+
+/* 备注浮条：从节点下方 4px 淡上来，不弹跳。 */
+@keyframes cvNoteUp {
+  from { opacity: 0; transform: translateY(-4px); }
+  to   { opacity: 1; transform: none; }
+}
+.cvnotefloat { animation: cvNoteUp var(--t2) var(--eo) backwards; }
+
+/* 备注角标：有内容才出现，出来时轻轻一下（像在说「这里有话」）。 */
+@keyframes cvBadgeIn {
+  from { opacity: 0; transform: scale(.6); }
+  to   { opacity: 1; transform: none; }
+}
+.cvnotebadge { animation: cvBadgeIn var(--t2) var(--eo-back) backwards; }
+
+/* 备注气泡：原来是 display:none/block 硬切（app.css:7833），切不出淡入。
+   改成 opacity + visibility —— visibility 的延迟给到 --t2，
+   这样移开鼠标后气泡是「淡出去」而不是「啪一下没了」。 */
+.cvnotebadge-pop {
+  display: block;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-3px);
+  transition:
+    opacity var(--t2) var(--ease),
+    transform var(--t2) var(--eo),
+    visibility 0s linear var(--t2);
+}
+.cvnotebadge:hover .cvnotebadge-pop,
+.cvnotebadge:focus .cvnotebadge-pop,
+.cvnotebadge:focus-within .cvnotebadge-pop {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+
+/* 右键菜单：从点击的那一点铺开。子菜单复用同一个动画。 */
+@keyframes cvMenuIn {
+  from { opacity: 0; transform: scale(.97) translateY(-2px); }
+  to   { opacity: 1; transform: none; }
+}
+.cvmenu,
+.cvmenu-sub {
+  transform-origin: top left;
+  animation: cvMenuIn var(--t2) var(--eo) backwards;
+}
+/* 行：hover 时字往右让 3px。这 3px 是「指认」，让人知道鼠标停在哪一行。 */
+.cvmenu-row,
+.cvmenu-row.danger {
+  transition:
+    background-color var(--t1) var(--ease),
+    color var(--t1) var(--ease),
+    padding-left var(--t1) var(--eo);
+}
+.cvmenu-row:hover:not(:disabled):not(.dis),
+.cvmenu-row:focus-visible { padding-left: 11px; }
+
+/* 画布库的缩略图卡：成排进场，每张差 28ms。
+   差太多会看出「一个一个跳」，差太少等于一起闪 —— 28ms 是试出来的。 */
+@keyframes cvCardIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: none; }
+}
+.cvgalgrid > .gcard { animation: cvCardIn var(--t3) var(--eo) backwards; }
+.cvgalgrid > .gcard:nth-child(1) { animation-delay: 0ms; }
+.cvgalgrid > .gcard:nth-child(2) { animation-delay: 28ms; }
+.cvgalgrid > .gcard:nth-child(3) { animation-delay: 56ms; }
+.cvgalgrid > .gcard:nth-child(4) { animation-delay: 84ms; }
+.cvgalgrid > .gcard:nth-child(5) { animation-delay: 112ms; }
+.cvgalgrid > .gcard:nth-child(6) { animation-delay: 140ms; }
+.cvgalgrid > .gcard:nth-child(n + 7) { animation-delay: 168ms; }
+.gcard {
+  transition: border-color var(--t2) var(--ease), transform var(--t2) var(--eo), box-shadow var(--t2) var(--ease);
+}
+.gcard:active:not(.new):not(.skel) { transform: translateY(0) scale(.994); }
+
+/* 骨架卡：一条扫光走过去。
+   静止的灰块传达的是「死了」，走动的才是「在读」。跟别处的骨架同一套说法。 */
+@keyframes cvSkelSweep {
+  from { background-position: -180px 0; }
+  to   { background-position: 340px 0; }
+}
+.gcard.skel .gthumb,
+.gcard.skel .gmeta {
+  background-image: linear-gradient(90deg, transparent 0, rgba(255, 255, 255, .05) 46%, transparent 92%);
+  background-size: 180px 100%;
+  background-repeat: no-repeat;
+  animation: cvSkelSweep 1.15s var(--ease) infinite;
+}
+
+/* 列表视图（左栏一条条 .cvmap）：hover 往右让 2px，点下去缩一点点。 */
+.cvmap {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), transform var(--t1) var(--eo);
+}
+.cvmap:hover { background-color: var(--cvpanel); transform: translateX(2px); }
+.cvmap:active { transform: translateX(0) scale(.99); }
+
+/* 来源面板里的清单行：跟菜单行同一套「指认」动作。 */
+.src-pick-row {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), padding-left var(--t1) var(--eo);
+}
+.src-pick-row:hover { padding-left: 13px; }
+.src-pick-row:active { background-color: var(--card3); }
+
+/* 连线：选中时加粗。stroke 和 stroke-width 都能过渡（stroke-dasharray 才是重排）。 */
+.cvstage .react-flow__edge-path {
+  transition: stroke var(--t2) var(--ease), stroke-width var(--t2) var(--ease);
+}
+.cvstage .react-flow__edge.selected .react-flow__edge-path { stroke-width: 2.2; }
+
+/* 画布里的模态（来源 / 导出 / 导入）沿用 .mdl 那套进场，这里补一下时长。 */
+.mdl-box { animation: mdlUp var(--t3) var(--ease); }
+
+/* =========================================================================
+   画布：大纲 / 搜索 / 选择条 / 面板 / 顶栏按钮
+   -------------------------------------------------------------------------
+   这一段全是左栏和浮层，跟第一段（节点）规矩不同：
+   这里的东西没有 d3 拖着走，可以放开做位移和缩放。唯一要记的是
+   .cvselbar 自带 translate(-50%) 做居中 —— 它的动画必须把 -50% 一起带上，
+   写 transform:translateY(6px) 会让它瞬间跳到右半屏去。
+   ========================================================================= */
+
+/* 大纲行：hover 抬亮 + 字往右让 2px。
+   app.css 原来只有 :hover 换底、没有过渡，一行 24px 高的东西硬切很跳。 */
+.cvoline {
+  transition:
+    background-color var(--t1) var(--ease),
+    color var(--t1) var(--ease),
+    padding-left var(--t1) var(--eo);
+}
+.cvoline:hover { padding-left: 2px; }
+.cvoline:active { background-color: var(--cvpanel); }
+
+/* 折叠三角：旋转本身 app.css 已经有 .12s，这里只把时长并到全局口径，
+   再加一层「点下去缩一下」的压下反馈。 */
+.cvtwist { transition: transform var(--t2) var(--eo), opacity var(--t2) var(--ease); }
+.cvtwist:not(.none):active { transform: scale(.88); }
+.cvtwist.closed:not(.none):active { transform: rotate(-90deg) scale(.88); }
+
+/* 层级按钮 ← →：原来是 display:none/flex 硬切（app.css:7373）。
+   硬切的结果是鼠标扫过去一排箭头啪啪往外蹦。改成淡入，
+   visibility 的延迟同样给到 --t2，移开鼠标是淡出不是消失。 */
+.cvoact {
+  display: flex;
+  opacity: 0;
+  visibility: hidden;
+  transform: translateX(4px);
+  transition:
+    opacity var(--t1) var(--ease),
+    transform var(--t1) var(--eo),
+    visibility 0s linear var(--t1);
+}
+.cvoline:hover .cvoact,
+.cvoline.on .cvoact,
+.cvoline:focus .cvoact,
+.cvoline:focus-within .cvoact {
+  opacity: 1;
+  visibility: visible;
+  transform: none;
+  transition-delay: 0s;
+}
+.cvoact .cvmini,
+.cvmini {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), border-color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvoact .cvmini:active:not([disabled]),
+.cvmini:active:not([disabled]) { transform: scale(.92); }
+.cvmini:disabled,
+.cvoact .cvmini:disabled { opacity: .38; cursor: default; }
+
+/* 大纲行整体进场：成排往下落，每行列差 14ms。
+   一张 80 行的树全一起闪像刷新，14ms 差出来的是「铺开」而不是「重画」。 */
+@keyframes cvRowIn {
+  from { opacity: 0; transform: translateY(-3px); }
+  to   { opacity: 1; transform: none; }
+}
+.cvoline { animation: cvRowIn var(--t2) var(--eo) backwards; }
+.cvoline:nth-child(1)  { animation-delay: 0ms; }
+.cvoline:nth-child(2)  { animation-delay: 14ms; }
+.cvoline:nth-child(3)  { animation-delay: 28ms; }
+.cvoline:nth-child(4)  { animation-delay: 42ms; }
+.cvoline:nth-child(5)  { animation-delay: 56ms; }
+.cvoline:nth-child(6)  { animation-delay: 70ms; }
+.cvoline:nth-child(n + 7) { animation-delay: 84ms; }
+
+/* 搜索结果行：跟菜单行同一套「指认」。命中的 <mark> 给个底色渐显，
+   让人一眼看到「是这个词」而不是「这里有一块黄」。 */
+.cvsr-row {
+  transition: background-color var(--t1) var(--ease), border-color var(--t1) var(--ease), padding-left var(--t1) var(--eo);
+}
+.cvsr-row:hover { padding-left: 9px; }
+.cvsr-row:active { background-color: var(--cvpanel); }
+@keyframes cvMarkIn {
+  from { background-color: rgba(255, 176, 32, 0); }
+  to   { background-color: rgba(255, 176, 32, .28); }
+}
+.cvotx mark,
+.cvsr-row mark {
+  animation: cvMarkIn var(--t3) var(--ease) backwards;
+}
+
+/* 底部选择条：从底下浮上来。
+   注意 translate(-50%) 必须跟着走 —— 它是水平居中的锚，丢了这个条形会横跳。 */
+@keyframes cvBarUp {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+.cvselbar { animation: cvBarUp var(--t3) var(--eo) backwards; }
+.cvselbar button {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvselbar button:active:not([disabled]) { transform: scale(.93); }
+
+/* 导出小面板：跟右键菜单同一套铺开。 */
+.cvexport { animation: cvMenuIn var(--t2) var(--eo) backwards; }
+.cvexp-row {
+  transition: background-color var(--t1) var(--ease), padding-left var(--t1) var(--eo);
+}
+.cvexp-row:hover { padding-left: 12px; }
+
+/* 快捷键表：沿用 modal 的进场。
+   里面的 kbd 不做动效 —— 那是一张查阅表，看的时候不该有任何东西在动。 */
+.cvkeys-box { animation: mdlUp var(--t3) var(--ease); }
+
+/* 左栏空态：淡入。它不是错误提示，是「这里以后会有东西」，
+   所以不给红、不给警告语气，只让它轻轻出现。 */
+@keyframes cvEmptyIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.cvside-empty { animation: cvEmptyIn var(--t3) var(--ease) backwards; }
+
+/* 顶栏按钮 / tab：app.css 里写死 .14s~.16s，这里并到全局口径，
+   再加按下反馈。tab 是「看什么」的切换，选中态换底色要有过渡，
+   不然两个视图之间是硬切。 */
+.cvbtn,
+.cvtab,
+.cvnew {
+  transition:
+    background-color var(--t1) var(--ease),
+    border-color var(--t1) var(--ease),
+    color var(--t1) var(--ease),
+    transform var(--t1) var(--eo);
+}
+.cvbtn:active:not([disabled]) { transform: scale(.96); }
+.cvtab:active { transform: scale(.97); }
+.cvnew:active { transform: scale(.99); }
+.cvbtn.on,
+.cvbtn.act {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), color var(--t2) var(--ease);
+}
+
+/* 搜索框聚焦：边框亮起来。app.css 只换了 border-color 没有过渡，
+   聚焦那一下是硬跳。 */
+.cvfind,
+.cvfind-inp {
+  transition: border-color var(--t2) var(--ease), background-color var(--t2) var(--ease);
+}
+
+/* 图库容器切视图（画布 / 图库）时淡一下。
+   不加位移：两个视图高度差不多，位移反而像整页在晃。 */
+@keyframes cvBodyIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.cvgalbody { animation: cvBodyIn var(--t2) var(--ease) backwards; }
+
+/* 叠层大图（素材摊开看，Canvas.tsx 里的 .lbox 一套）：
+   底先暗下来，图再从 98% 放到 100%。
+   放大只到 100% —— 再大就是「弹出来」，那是广告位的动作，不是看图。 */
+@keyframes cvLightIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+@keyframes cvLightImg {
+  from { opacity: 0; transform: scale(.98); }
+  to   { opacity: 1; transform: none; }
+}
+.lbox { animation: cvLightIn var(--t2) var(--ease) backwards; }
+.lbox-in { animation: cvLightIn var(--t2) var(--ease) backwards; }
+.lb-stage img { animation: cvLightImg var(--t3) var(--eo) backwards; }
+.lb-x,
+.lb-nav button,
+.lb-bt {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), border-color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.lb-x:active,
+.lb-nav button:active:not([disabled]) { transform: scale(.92); }
+
+/* =========================================================================
+   画布：版面切换 / 色块 / 检查器 / 空态 / 滚动容器
+   -------------------------------------------------------------------------
+   最后这一段是「剩下的小按钮和小面板」。它们共同的一点是都很小 ——
+   小东西最容易做过头：一只 26px 高的按钮如果位移 6px，看上去像整页在抖。
+   这里的位移一律压在 1~3px，时长压在 --t1，跟第一段那些大块区分开。
+   ========================================================================= */
+
+/* 版面三选一（导图 / 纵向 / 放射）：
+   选中态原来只有「描边变色」，没有位移。给 1px 下沉的意思是
+   「这一档被按下去了」，跟 tab 的「换了一页」不是一个动作。
+   .cvlayer .cvbtn 在 app.css:7908 段里，这里只补过渡和那 1px。 */
+.cvlayer .cvbtn {
+  transition:
+    background-color var(--t1) var(--ease),
+    border-color var(--t1) var(--ease),
+    color var(--t1) var(--ease),
+    transform var(--t1) var(--eo);
+}
+.cvlayer .cvbtn.on { transform: translateY(1px); }
+.cvlayer .cvbtn:active:not([disabled]) { transform: translateY(1px) scale(.97); }
+
+/* 顶栏右侧那一排零碎（图标按钮 / 计数角标 / 缩放百分比）。
+   它们大多是「状态显示」，只有 hover 换底，不给位移。 */
+.cvglyph,
+.cvcnt,
+.cvnum {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), opacity var(--t1) var(--ease);
+}
+
+/* 小地图（.cvmm）：它是导航不是内容，只淡入淡出，别让它跳。 */
+.cvmm { transition: opacity var(--t2) var(--ease), border-color var(--t2) var(--ease); }
+
+/* 色块（.cvsw / .cvswatch）：hover 抬 12%。
+   12% 在小色块上刚好看得出来又不夸张 —— 再大就像贴纸翘起来了。 */
+.cvsw,
+.cvswatch {
+  transition: transform var(--t1) var(--eo), box-shadow var(--t1) var(--ease);
+}
+.cvsw:hover,
+.cvswatch:hover { transform: scale(1.12); }
+.cvsw:active,
+.cvswatch:active { transform: scale(1.04); }
+
+/* 批量弹层（.cvbulkpop）：跟右键菜单同一套铺开。 */
+.cvbulkpop { animation: cvMenuIn var(--t2) var(--eo) backwards; }
+
+/* 检查器（右栏 .cvinsp）与 Markdown 导入预览（.mdpane / .mdprev / .mdta）。
+   这两处是「正在写」，鼠标移来移去是常事 —— 只给颜色和边框过渡，
+   不给位移：输入框自己会跳光标，再加位移就晃了。 */
+.cvinsp input,
+.cvinsp textarea,
+.mdta {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), box-shadow var(--t2) var(--ease);
+}
+.cvinsp input:focus,
+.cvinsp textarea:focus,
+.mdta:focus {
+  /* 聚焦环用 box-shadow 画，不用 outline：outline 没有圆角过渡，会硬跳一圈。 */
+  box-shadow: 0 0 0 3px rgba(255, 176, 32, .1);
+}
+
+/* 检查器底部那排（保存 / 取消）。 */
+.cvinsp-bt button {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), border-color var(--t1) var(--ease), opacity var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvinsp-bt button:active:not([disabled]) { transform: scale(.96); }
+
+/* 左栏两个 tab（画布 / 大纲）。真正的按钮是 .cvltab，容器 .cvltabs 只是那层灰底
+   —— 写错成容器的话过渡一个像素都不会生效（app.css:7246 / 7253）。
+   选中态 .on 是填实心琥珀，换底色要有过渡，不然两个视图之间是硬切。 */
+.cvltab {
+  transition: background-color var(--t2) var(--ease), color var(--t2) var(--ease), transform var(--t1) var(--eo);
+}
+.cvltab:active { transform: scale(.97); }
+
+/* 图库空态 / 弹窗空态：淡入。
+   「没有」也是一种状态，让它安静地出现，别蹭一下进来。 */
+.cvgalempty,
+.mdl-empty { animation: cvEmptyIn var(--t3) var(--ease) backwards; }
+
+/* 画布里几个要滚的容器补平滑滚动。
+   全局的 scroll-behavior 只管 #root 那一层，
+   这几个是内部容器，得单独说一句。 */
+.cvsr,
+.cvgalbody,
+.cvoutline-list,
+.lb-rows { scroll-behavior: smooth; }
+
+/* =========================================================================
+   画布：原地编辑器 / 六种内容块 / 菜单零件 / 通用弹窗零件
+   -------------------------------------------------------------------------
+   这一段是把上面三段没扫到的零件补齐。原则是「只有会变的才动」：
+   分隔线（.cvmenu-sep）、Handle（.cvhandle）、 captivity 的引导语
+   永远不动 —— 它们动起来只会让人以为是坏了。
+   ========================================================================= */
+
+/* 原地编辑器（.cvedit）：双击后从节点身上长出来。
+   app.css 里它是 absolute 锚在底边、允许往上长（7836 段），
+   所以进场就顺着它自己的方向：往下 4px 淡进来，别从上面掉下来。
+   注意它宽高跟节点一致且随内容变，绝不能给它 scale ——
+   一放大字就跟着糊，退出去对齐又是错的。 */
+.cvedit { animation: cvNoteUp var(--t2) var(--eo) backwards; }
+.cvedit-ta {
+  transition: background-color var(--t2) var(--ease), box-shadow var(--t2) var(--ease);
+}
+.cvedit-ta:focus {
+  /* 聚焦画投影不画边框：编辑框已经有一圈 --act 边框，再加一圈是两层框。 */
+  box-shadow: 0 0 0 3px rgba(255, 176, 32, .12);
+}
+/* 编辑框下沿那行字数/快捷键提示：跟着编辑器一起淡入，但慢一拍，
+   这样人是先看到「能改了」，再看到「怎么改」。 */
+.cvedit-hint { opacity: 0; animation: cvEmptyIn var(--t3) var(--ease) 80ms backwards; }
+
+/* 六种内容块（代码块 / 表格 / 待办 / 提示 / 公式）。
+   它们共同的一点：内容换了要「换成了另一个东西」，所以给一次淡入。
+   别拿内容当前几位做动画 key —— 那样每敲一个字都重播一遍，敲十个字闪十下。
+   这里只在 .cvblk 挂着，换内容不重播。 */
+@keyframes cvBlkIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.cvblk { animation: cvBlkIn var(--t2) var(--ease) backwards; }
+/* 代码块里的行号列：永不起眼的那一列，给它一点存在感。 */
+.cvblk-no { transition: opacity var(--t2) var(--ease); }
+.cvblk-code:hover .cvblk-no { opacity: .72; }
+/* 表格单元格：数字右对齐那一列配 tabular-nums，hover 整行微亮。
+   表格是用来对数的， Transition 只在 hover 提底色，不动位置。 */
+.cvblk-tr { transition: background-color var(--t1) var(--ease); }
+.cvblk-table .cvblk-tr:hover { background-color: rgba(255, 255, 255, .03); }
+/* 待办勾选：✓ 出现时弹一下。这是全画布唯一允许「弹」的地方 ——
+   打勾是有成就感的事，给 .eo-back 那带 Overshoot 的曲线正合适。 */
+@keyframes cvTick {
+  from { opacity: 0; transform: scale(.4); }
+  to   { opacity: 1; transform: none; }
+}
+.cvblk-li.done > i:first-child,
+.cvblk-li.done .cvtick { animation: cvTick var(--t3) var(--eo-back) backwards; }
+
+/* 右键菜单的零件。
+   .cvmenu-row 主行在上面已经有 padding-left 过渡，这里补同楼主不受者：
+   色块（.cvmenu-swd）、圆点（.cvmenu-dot）、子菜单那一层壳。
+   .cvmenu-sep 是分隔线，明文不动 —— 它动起来像界面在抽。 */
+.cvmenu-rowwrap {
+  transition: opacity var(--t1) var(--ease);
+}
+.cvmenu-swd { transition: transform var(--t1) var(--eo); }
+.cvmenu-row:hover .cvmenu-swd:not([style*="background: ;"]) { transform: scale(1.15); }
+.cvmenu-dot { transition: opacity var(--t1) var(--ease); }
+/* 遮罩（点外面关）：必须比菜单快一倍，不然点完之后菜单走了遮罩还在糊一层。 */
+.cvmenu-mask { animation: cvEmptyIn var(--t1) var(--ease) backwards; }
+
+/* 备注气泡里的 Markdown 子元素：一个一个来，每个差 18ms。
+   一张笔记七八个元素一起出现是「啜」，一个一个来才是「读」。 */
+.cvnotebadge-pop .md-p,
+.cvnotebadge-pop .md-h1,
+.cvnotebadge-pop .md-h2,
+.cvnotebadge-pop .md-h3,
+.cvnotebadge-pop .md-list { animation: cvRowIn var(--t2) var(--eo) backwards; }
+.cvnotebadge-pop .md-p:nth-child(1),
+.cvnotebadge-pop .md-h1:nth-child(1) { animation-delay: 0ms; }
+.cvnotebadge-pop .md-p:nth-child(2),
+.cvnotebadge-pop .md-list:nth-child(2) { animation-delay: 18ms; }
+.cvnotebadge-pop .md-p:nth-child(3) { animation-delay: 36ms; }
+.cvnotebadge-pop .md-p:nth-child(n + 4) { animation-delay: 54ms; }
+
+/* 通用弹窗（来源 / 导出 / 导入 / 快捷键）的零件。
+   .mdl-box 的进场在第一段给了时长，这里补里面的零件：
+   标题、正文、脚注、关闭按钮。—— Members 不做位移只做淡入，
+   弹窗内容是拿来读的，抖一下就读不下去了。 */
+.mdl-hd,
+.mdl-bd,
+.mdl-ft,
+.mdl-note,
+.mdl-tt { animation: cvEmptyIn var(--t3) var(--ease) backwards; }
+.mdl-x {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.mdl-x:active { transform: scale(.9); }
+
+/* 叠层大图（看素材）剩下的零件：头部信息、位置计数、右栏说明。
+   图已经从 98% 放到 100% 了，这些配件更不能抢 —— 只淡入。 */
+.lb-hd,
+.lb-note,
+.lb-pos,
+.lb-side { animation: cvEmptyIn var(--t3) var(--ease) 60ms backwards; }
+
+/* 左栏列表（画布清单）里的标题行和 ⌄ 按钮。
+   .cvmap 本体在第二段给了 hover 位移，这里是它内部的文字与按键。 */
+.cvmap-tx { transition: opacity var(--t2) var(--ease); }
+.cvmapbtn {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvmapbtn:active { transform: scale(.9); }
+/* 搜索命中计数那行：数字变了要看得见，但不必闪 —— 给个底色掠过就够。 */
+@keyframes cvHitsFlash {
+  from { background-color: rgba(255, 176, 32, .12); }
+  to   { background-color: transparent; }
+}
+.cvhits { animation: cvHitsFlash var(--t4) var(--ease) backwards; }
+
+/* Markdown 导入 / 导出 预览的双栏。
+   左边写右边看，分栏举动在这里没意义，只给聚焦时的边框过渡。 */
+.mdsplit,
+.mdpane-hd { transition: border-color var(--t2) var(--ease), background-color var(--t2) var(--ease); }
+
+/* 顶栏标题（.cvt / .cvtitle / .cvmeta）：它们换了内容要看得出来。
+   位移会给已经贴边排好的那一排按钮造成错位，所以只换透明度。 */
+.cvt,
+.cvtitle,
+.cvmeta { transition: opacity var(--t2) var(--ease), color var(--t2) var(--ease); }
+
+/* =========================================================================
+   画布：内容块的真实 DOM 校正 + 编辑器两个按钮
+   -------------------------------------------------------------------------
+   上一段按类名推断写了一部分，对着 BlockView.tsx 的真 DOM 核了一遍，
+   有两处得改过来 —— 不看真 DOM 写 CSS 就是猜：
+
+   01 待办的勾不是独立的 .cvtick，是同一个 <i className="cvblk-box">，
+      打勾只是把里面的 '✓' 填进去（BlockView.tsx:64）。所以不能给 ✓
+      单独做进场动画 —— 它连自己的 DOM 节点都没有。改成让勾框本身过渡。
+   02 除代码块外，其他块的行都是同一个 <span className="ln">，
+      「节点造型 v3」那一段已经管过它，这里不重复。
+   ========================================================================= */
+
+/* 待办：勾框本身过渡，勾上的那一刻弹一下。
+   .done 加在 .cvblk-li 上，CSS 没有「上一次」的概念，所以这里只能用
+   过渡不能用动画 —— 过渡在类加上时自然发生一次，动画每次重渲染都重播。
+   这是这一处必须写 transition 而不是写 @keyframes 的原因。 */
+.cvblk-box {
+  transition: background-color var(--t2) var(--ease), border-color var(--t2) var(--ease), color var(--t2) var(--ease), transform var(--t2) var(--eo-back);
+}
+.cvblk-li.done .cvblk-box { transform: scale(1.06); }
+.cvblk-li { transition: opacity var(--t2) var(--ease); }
+.cvblk-li.done { opacity: .72; }
+
+/* 上一段按 .cvtick 写的那条规则作废（这个类名根本不存在）。
+   显式踩平：万一以后真加了这个元素，也不至于两个动画叠着弹两下。 */
+.cvblk-li.done .cvtick { animation: none; }
+
+/* 六种内容块共用的行：<span className="ln">。
+   不给动画 —— 行只是在父容器里堆着，给它们排队进场会让一个块里
+   五行字逐个出现，读起来是「闪」不是「读」。 */
+.cvblk .ln { transition: none; }
+
+/* 编辑器的两个按钮（保存 / 收起）和当前备注摘要。
+   保存是主操作，收起是次要：主操作抬亮、压下更有力；
+   次要的保持克制。两个一样亮，人就分不清哪个是「写完了」。 */
+.cvedit-ok,
+.cvedit-no {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), border-color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvedit-ok:active { transform: scale(.94); }
+.cvedit-no:active { transform: scale(.96); }
+.cvedit-cur { transition: color var(--t2) var(--ease), opacity var(--t2) var(--ease); }
+
+/* 代码块：鼠标移上去背景再压暗一点。
+   代码块本来就是一整块深色，移上去没反馈的话，人会以为那是张图片。 */
+.cvblk-code { transition: background-color var(--t2) var(--ease); }
+.cvnode:hover .cvblk-code { background-color: rgba(0, 0, 0, .34); }
+.cvnode.d0:hover .cvblk-code { background-color: rgba(255, 255, 255, .2); }
+
+/* =========================================================================
+   画布动效：第五段 —— 按探针实测结果收口径
+   -------------------------------------------------------------------------
+   探针（tests/probe-motion.mjs / probe-motion2.mjs）跑完之后有三处要改，
+   每一处都是「以为写对了，运行时一量发现是空的」。
+
+   01 .cvlayer 那三个版面按钮（导图 / 纵向 / 放射）：探针量到 layerCount 0。
+      原因不是规则错，是它只在编辑视图里渲染，探针停在图库视图。
+      教训记下来：判断规则有没有生效，先确认元素在不在，再谈样式。
+      顺手把后代选择器放开 ——.cvlayer .cvbtn 这种写法只要父容器不渲染就全废。
+   02 .cvfind-inp 同理，它在编辑视图顶栏。规则保留，探针要进画布之后再量。
+   03 .cvedit-ok / .cvedit-no 探针报 absent。查 NodeEditor.tsx:372-374：
+      这两个按钮只出现在备注浮条（NoteFloat）里，普通节点编辑器只有
+      .cvedit-hint 一行提示。所以规则要按真实 DOM 收窄，
+      别对着压根不存在的元素写半天。
+   ========================================================================= */
+
+/* 版面三选一：不再依赖 .cvlayer 这个父容器，直接落到 .cvbtn.on 上。
+   .cvbtn.on 不挑视图 —— 编辑视图里的版面按钮命中，
+   别处带 .on 的功能按钮也吃同一套「按下去」的手感，不会漏。 */
+.cvbtn.on,
+.cvbtn.act {
+  transform: translateY(1px);
+}
+
+/* 上面那两个按钮真的只存在于备注浮条里（NodeEditor.tsx:372-374 实测）。
+   选择器 .cvedit-ok / .cvedit-no 已经对了，这里再给整个浮条一套统一手感，
+   省得以后往里加第三个按钮又漏掉。 */
+.cvnotefloat button {
+  transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), border-color var(--t1) var(--ease), transform var(--t1) var(--eo);
+}
+.cvnotefloat button:active:not([disabled]) { transform: scale(.95); }
+
+/* .cvedit-hint 是「Shift+Enter 换行」那行小字，它在每个节点编辑器里都在，
+   是唯一稳定存在的子元素 —— 延迟 80ms 淡入那条已经被第二轮探针确认有效。
+   .cvedit-cur（备注摘要）只在备注浮条里，跟着浮条一起淡就够了。 */
+.cvedit-cur { transition: opacity var(--t2) var(--ease); }
+
+/* =========================================================================
+   第七段：课堂 / 考场 / 背单词 / 作文 / 设置 —— 把画布之外的页补齐
+   -------------------------------------------------------------------------
+   前六段把画布吃透了，其余页面只吃了第一段那条「块级进场」。这一段补的是
+   「页面里的小东西」：播放器、打点条、面板块、拼写格、判分三档、写作框。
+
+   这几页跟画布最大的不同：它们大多是「点一下换一屏」，不是持续拖拽。
+   所以位移比画布更小（1~4px），时长更靠 --t1/--t2，只有整块换内容才用 --t3。
+
+   一条不许：不许给「已经在那儿的静态东西」加常驻动画。
+   一页里同时晃三处，人不知道该看哪儿 —— 那是装饰，不是动效。
+   ========================================================================= */
+
+/* ---------------- 课堂：播放器 / 封面 / 空态 ----------------
+   播放按钮那个 56px 琥珀圆钮：悬停时不是「变大」，是「吐出一圈」。
+   直接 scale 会让它在 16:9 的黑框里跳；影子先长出来，人读到的是「可以点」。 */
+.cls2-screen .vplay { transition: background-color var(--t2) var(--ease); }
+.cls2-screen .vplay:hover { background: rgba(0,0,0,.5); }
+.cls2-screen .vplay i {
+  transition: transform var(--t3) var(--eo-back), box-shadow var(--t3) var(--ease);
+}
+.cls2-screen .vplay:hover i {
+  transform: scale(1.06);
+  box-shadow: 0 0 0 10px rgba(255,176,32,.12), 0 10px 30px -10px rgba(255,176,32,.5);
+}
+.cls2-screen .vplay:active i { transform: scale(.97); }
+.cls2-screen .vplay em { transition: color var(--t2) var(--ease); }
+
+/* 封面换成播放器（点了播放）时，整个画面淡进来一次。
+   不位移：黑框的边缘是硬的，一动就露出一条黑边。 */
+.cls2-screen video,
+.cls2-screen .vposter { animation: fadeOnly var(--t4) var(--ease) both; }
+
+/* 合流中那枚转圈：它本来就在转（vbufspin），这里只补「出现」的那一下。
+   注意不要给 .vplay i 加 animation —— 那个 i 是播放按钮，两个 i 撞名。 */
+.cls2-screen .vbuf { animation: rise var(--t3) var(--ease) both; }
+
+/* 空态：一屏黑里唯一有字的地方，慢慢显，别抢戏 */
+.cls2-screen .vscreen-empty { animation: fadeOnly var(--t4) var(--ease) both; }
+.cls2-screen .vscreen-empty b,
+.cls2-screen .vscreen-empty .t2,
+.cls2-screen .vscreen-empty .pbtn-mn { animation: rise var(--t3) var(--ease) both; }
+.cls2-screen .vscreen-empty b { animation-delay: 40ms; }
+.cls2-screen .vscreen-empty .t2 { animation-delay: 80ms; }
+.cls2-screen .vscreen-empty .pbtn-mn { animation-delay: 120ms; }
+
+/* 放不了（.verr）：这是错误，不是内容。给一档"撞进来"的入场，
+   240ms 内把话说清楚，并且不许自动消失 —— 错误不许自己走。 */
+.cls2-screen .verr { animation: rise var(--t3) var(--ease) both; }
+
+/* ---------------- 课堂：七列目录 / 折叠 / 选中行 ----------------
+   .cls2-toc 里的分组头和讲次行。折叠用的是 .closing（190ms 播完再删），
+   已经在第四百来行定义过；这里只补行本身的手感。 */
+.cls2-li { transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease); }
+.cls2-li:hover { transform: none; }          /* 行不位移：几十行一起排，位移会抖 */
+.cls2-li .d { transition: background-color var(--t2) var(--ease), transform var(--t2) var(--eo); }
+.cls2-li:hover .d { transform: scale(1.3); }
+.cls2-li.on .d { transform: scale(1.4); }
+
+/* 分组头那个小三角：转 90° 而不是换成另一个字符 ——
+   换字符就没有过渡可播，看起来像「点了两次」。 */
+.cls2-gh { transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease); }
+.cls2-gh .cv { transition: transform var(--t2) var(--eo); }
+
+/* 讲次列表整块进场：进这一讲之后目录不重排，所以只在换科目时播一次。
+   .cls2-toc 是滚动容器，动画挂在里面的分组上。 */
+.cls2-toc .ch { animation: fadeOnly var(--t2) var(--ease) both; }
+
+/* ---------------- 课堂：页签 / 打点条 / 右栏两块 ----------------
+   页签下那条 2px 琥珀：
+   app.css 里是 border-bottom-color 直接切，能过渡，这里只是把时长对齐 --t2。 */
+.cls2-tab { transition: color var(--t2) var(--ease), border-bottom-color var(--t2) var(--ease); }
+
+/* 打点条：进度填充（.fill）宽度过渡；每个打点（.mark）的竖线 hover 时抬亮。
+   .mark 只有 8px 宽，别给它 scale —— 2px 的线放大 1.2 倍看不出变化，
+   但会把相邻的那个挤走。 */
+.ticks-mn .fill { transition: width var(--t3) var(--ease); }
+.ticks-mn .mark::before {
+  transition: background-color var(--t1) var(--ease), box-shadow var(--t1) var(--ease);
+}
+/* 刚打的那个点：闪一下，告诉用户「这一下记下来了」。
+   只闪一次（--t3），不要 loop —— 常驻闪的东西会让人以为在等什么。 */
+@keyframes tickIn {
+  0%   { opacity: 0; transform: scaleY(.3); }
+  60%  { opacity: 1; transform: scaleY(1.35); }
+  100% { opacity: 1; transform: scaleY(1); }
+}
+.ticks-mn .mark.fresh::before {
+  animation: tickIn var(--t3) var(--eo-back) both;
+  transform-origin: center;
+}
+
+/* 右栏两块（笔记 / 截图）：缩略图格进场错峰，一次最多 6 个 */
+.note-mini-mn { transition: border-color var(--t2) var(--ease), transform var(--t2) var(--eo); }
+.note-mini-mn:hover { transform: translateY(-1px); }
+.note-mini-mn span { transition: color var(--t2) var(--ease); }
+.note-mini-mn:hover span { color: var(--tx); }
+
+.shotcell-mn { transition: border-color var(--t2) var(--ease), transform var(--t2) var(--eo), box-shadow var(--t2) var(--ease); }
+.shotcell-mn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px -12px #000; }
+.shotcell-mn:active { transform: scale(.985); }
+.shotcell-mn em { transition: background-color var(--t2) var(--ease); }
+.shotcell-mn:hover em { background: rgba(0,0,0,.78); }
+
+/* 两栏开关（顶栏那两枚图标）：按下 = 这一栏在，颜色从 --tx3 走到 --act。
+   .pbtn-mn.icon.on / .off 的底色在 v6.css 里，这里只补过渡和压下。 */
+.pbtn-mn.icon { transition: background-color var(--t1) var(--ease), color var(--t1) var(--ease), border-color var(--t1) var(--ease); }
+.pbtn-mn.icon:active { transform: scale(.94); }
+.pbtn-mn.icon.on .ic { color: var(--act); }
+
+/* ---------------- 考场：卷卡 / 做题的分组 chip ----------------
+   .pc-mn 第一段已给 hover 抬 2px。这里补两处它会漏的：
+   01 没做过的卷（.pc-mn 不带 .on）hover 时边框只到 --line2 —— 它不该亮成琥珀，
+      琥珀只给「正在做的那一份」；
+   02 .pc-mn .go 那个「开始 → / 重做 →」箭头，悬停时箭头右移 2px。 */
+.pc-mn .go { transition: color var(--t2) var(--ease), transform var(--t2) var(--eo); }
+.pc-mn:hover .go { transform: translateX(2px); }
+.pc-mn.on:hover .go { transform: translateX(2px); }
+
+/* 交卷后的分项行（.li-mn）：条子从 0 长到目标值，
+   但这一页同时有好几条，全部同时长出来像在抖，所以错峰 26ms。
+
+   注意 nth-child 的坑：Card 的第一个子元素是 .hd（标题行），
+   所以 .li-mn:nth-child(1) 永远匹配不到 —— 实测第一条也吃到 26ms，
+   错峰等于没做（旧写法 .li-mn:nth-child(2/3/4) 全是错位的）。
+   用 `:nth-child(n of .li-mn)` 按「第几条 li」数，跟 .hd 在不在前面无关。 */
+.twocol-mn .blkcard-mn .li-mn .tr-mn i {
+  animation: growW var(--t4) var(--ease) both;
+}
+.twocol-mn .blkcard-mn .li-mn:nth-child(1 of .li-mn) .tr-mn i { animation-delay: 0ms; }
+.twocol-mn .blkcard-mn .li-mn:nth-child(2 of .li-mn) .tr-mn i { animation-delay: 26ms; }
+.twocol-mn .blkcard-mn .li-mn:nth-child(3 of .li-mn) .tr-mn i { animation-delay: 52ms; }
+.twocol-mn .blkcard-mn .li-mn:nth-child(4 of .li-mn) .tr-mn i { animation-delay: 78ms; }
+.twocol-mn .blkcard-mn .li-mn:nth-child(n+5 of .li-mn) .tr-mn i { animation-delay: 104ms; }
+
+/* ---------------- 背单词：单词卡 / 拼写格 / 判分三档 ----------------
+   这一页的规矩是「一屏一格」：换词整张卡换掉，所以卡的进场要够明确。
+   .vx-card 本身就是渐变面 + 大阴影，这里只补淡入上浮 4px。 */
+.vx-card { animation: rise var(--t3) var(--ease) both; }
+.vx-bigword { animation: rise var(--t4) var(--ease) both; animation-delay: 40ms; }
+.vx-lw-hd,
+.vx-lw-rule,
+.vx-mean,
+.vx-sents { animation: rise var(--t3) var(--ease) both; }
+.vx-lw-hd { animation-delay: 60ms; }
+.vx-lw-rule { animation-delay: 80ms; }
+.vx-mean { animation-delay: 100ms; }
+.vx-sents { animation-delay: 120ms; }
+
+/* 拼写格（.vx-cell）：这一格是「等输入」的地方，focus 时亮一圈 ——
+   用 box-shadow 不用 outline，outline 没有圆角会硬切出一个方框。 */
+.vx-cell {
+  transition: border-color var(--t1) var(--ease), color var(--t1) var(--ease),
+              background-color var(--t1) var(--ease), box-shadow var(--t1) var(--ease),
+              transform var(--t1) var(--eo);
+}
+.vx-cell:focus { transform: translateY(-1px); }
+/* 判对了 / 判错了：让这一格弹一下再说结论，别只是改个颜色 */
+@keyframes cellPop {
+  0%   { transform: scale(1); }
+  45%  { transform: scale(1.12); }
+  100% { transform: scale(1); }
+}
+.vx-cell.ok, .vx-cell.bad { animation: cellPop var(--t3) var(--eo-back) both; }
+
+/* 判分三档（.vx-jb 不会 / 模糊 / 认识）：
+   悬停时那句 1px 上浮已在 app.css 里，这里补颜色过渡 + 按下回弹。
+   三档的颜色语义不许混：no=红、mid=黄、ok=绿 —— 一色一职同样管这里。 */
+.vx-jb {
+  transition: border-color var(--t2) var(--ease), color var(--t2) var(--ease),
+              background-color var(--t2) var(--ease), transform var(--t1) var(--eo);
+}
+.vx-jb:active { transform: scale(.98) translateY(0); }
+
+/* 声音按钮（.vx-lw-spk / .vx-ic / .spk）：按下去缩，同时琥珀底扩一圈 */
+.vx-lw-spk, .vx-ic {
+  transition: transform var(--t1) var(--eo), background-color var(--t2) var(--ease),
+              border-color var(--t2) var(--ease), color var(--t2) var(--ease);
+}
+.vx-lw-spk:active, .vx-ic:active, .vx-spell-hd .spk:active { transform: scale(.92); }
+
+/* 左栏词列（.vx-w）：整列几十行，只换底色，不位移 */
+.vx-w { transition: background-color var(--t1) var(--ease); }
+.vx-w .dot { transition: background-color var(--t2) var(--ease), transform var(--t2) var(--eo); }
+.vx-w:hover .dot { transform: scale(1.25); }
+.vx-w.on .dot { transform: scale(1.35); }
+
+/* 右栏那一圈（.vx-ring）：数字不滚动计数，但弧长要长出来。
+   用 stroke-dashoffset 过渡 —— 只改这一个属性，不触发重排。 */
+.vx-ring svg circle { transition: stroke-dashoffset var(--t4) var(--ease); }
+.vx-goal .bar i, .vx-prog i { transition: width var(--t3) var(--ease); }
+
+/* 记忆盒那几格（.vx-end-grid）：错峰淡入，看着像「一盒一盒数过去」 */
+.vx-end-grid > * { animation: rise var(--t3) var(--ease) both; }
+.vx-end-grid > *:nth-child(1) { animation-delay: 0ms; }
+.vx-end-grid > *:nth-child(2) { animation-delay: 30ms; }
+.vx-end-grid > *:nth-child(3) { animation-delay: 60ms; }
+.vx-end-grid > *:nth-child(4) { animation-delay: 90ms; }
+.vx-end-grid > *:nth-child(n+5) { animation-delay: 120ms; }
+
+/* 反馈条（.vx-fb）：判完才出现，200ms 内说完，只上浮 4px */
+.vx-fb { animation: rise var(--t2) var(--ease) both; }
+
+/* ---------------- 作文：题目选择 / 写作框 / 批改卡 ----------------
+   题目选择那一行（.pickrow-mn 里的 .schip-mn）已经在第一段吃过 chip 的手感，
+   这里补「选中那一条底下那条琥珀」—— 跟选项同一套语言。 */
+.yrbar-mn > .schip-mn.on { position: relative; }
+.yrbar-mn > .schip-mn.on::before {
+  content: '';
+  position: absolute;
+  left: 8px; right: 8px; bottom: -1px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--act);
+  animation: growW var(--t2) var(--ease) both;
+  transform-origin: left;
+}
+
+/* 写作框：纸上的输入区。聚焦时底色从 paper2 转 paper、边框变暖 ——
+   这是「纸」不是「输入框」，所以不许出现灰蓝的默认焦点环。 */
+.paper-mn .wedit {
+  transition: border-color var(--t2) var(--ease), background-color var(--t2) var(--ease),
+              box-shadow var(--t2) var(--ease);
+}
+.paper-mn .wedit:focus { box-shadow: 0 0 0 3px rgba(185,162,119,.16); }
+
+/* 批改卡里那几格（.mini-mn）：数字是结论，一档淡入就够 */
+.mini-mn > .m { animation: fadeOnly var(--t3) var(--ease) both; }
+.mini-mn > .m:nth-child(1) { animation-delay: 0ms; }
+.mini-mn > .m:nth-child(2) { animation-delay: 30ms; }
+.mini-mn > .m:nth-child(3) { animation-delay: 60ms; }
+.mini-mn > .m:nth-child(4) { animation-delay: 90ms; }
+
+/* ---------------- 设置：来源行 / 模型行 / 最近调用 ----------------
+   .fxrow-mn 第一段已给 hover 底色。这一页真正缺的是「状态变了」的提示：
+   从「没配」变成「能用」时那个 .tg-mn 要闪一下 —— 否则用户不知道存成功了。
+   .tg-mn.flash 的 keyframes（tagFlash）在第三百来行，这里只补行内的过渡。 */
+.fxrow-mn .tg-mn { transition: background-color var(--t3) var(--ease), color var(--t3) var(--ease); }
+.fxrow-mn .nm b { transition: color var(--t2) var(--ease); }
+.fxrow-mn:hover .nm b { color: var(--tx); }
+
+/* 展开填凭证那一行（.inp-mn + 两个按钮）会突然把行高撑开。
+   高度过渡做不了（内容不定高），所以用「淡入 + 轻微上浮」，
+   看起来是「从这一行底下长出来的」。 */
+.fxrow-mn .inp-mn { animation: rise var(--t2) var(--ease) both; }
+
+/* 正在用的模型那一行（.tg-mn.ok「在用」）：琥珀只在它上面发亮 */
+.fxrow-mn .tg-mn.ok { box-shadow: 0 0 0 2px rgba(79,196,135,.10); }
+
+/* ---------------- 全局兜底：这一段之后不许再加「常驻动画」 ----------------
+   上面整段的规则只有两种：transition，或者「挂载时播一次」的 animation。
+   没有一条 infinite。全站 infinite 的只有四处，语义都是「还在进行中」：
+     .skel-mn（骨架扫光）、.loading-mn（正在读）、.vbuf i（合流中）、
+     .pbtn-mn.busy（按钮在跑）。
+   新增动效前先问三句：
+     1) 我动的是 transform 还是 layout？动 layout 就会掉帧。
+     2) 6px 之内人能不能看出变化？看不出就别做。
+     3) 它是不是一直在动？一直在动的东西会让人等它，而不是用它。 */

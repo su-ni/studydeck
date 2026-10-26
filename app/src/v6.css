@@ -1,0 +1,3114 @@
+/* =========================================================================
+   研学台 v6「壳与纸」样式
+   来源：docs/design-v6.html（1-267 行 CSS + 五页示例）
+   规则：01 深炭是壳（导航/按钮/数字），米白是纸（题干/选项/讲解/范文）
+        02 边框退位 —— 分组靠底色三层，只在「换了一件事」留一条线
+        03 字阶拉开 —— 数字 38px / 题干 16.5px / 正文 13px·1.85 / 标签 10px 加字距
+        04 一色一职 —— 琥珀只给「现在该点的」和「当前所在」，绿红只给判分，科目色只给身份
+        05 非对称 —— 主内容 + 一条 258px 窄栏放「这数字怎么来的」
+
+   类名一律 -mn 结尾（mono v6 的缩写），避开旧壳18K  旧 ui.css 里同名的 .kpi / .opt /
+   .mini / .paper / .blk / .cgrid / .bar —— 那些是老实现的类，撞上去就是样式互吃。
+   ========================================================================= */
+
+/* ---- 画布页的 focus 态：侧栏收成 56px 图标条 ----
+   为什么是「自动」而不是一个折叠按钮：画布要的是一整屏，让人先点一下才腾地方，
+   那一下永远是多余的。切走画布页 .focus 自动去掉，不用记着自己展开过。
+   收起来只留图标，名字和计数都收进 title（tooltip）。 */
+.app-mn.focus {
+  grid-template-columns: 56px minmax(0, 1fr);
+}
+.app-mn.focus .rail {
+  width: 56px;
+  padding: 14px 8px 12px;
+  align-items: center;
+}
+.app-mn.focus .brand {
+  flex-direction: column;
+  gap: 0;
+  padding: 2px 0 12px;
+  margin: 0 auto 4px;
+  justify-content: center;
+}
+.app-mn.focus .brand .lg {
+  /* 38px 是展开态的尺寸，这里必须显式覆盖 —— 少了这两行，收缩进 flex 列容器后
+     宽度会被压成 0，「研」字标整个消失（实测过：lg 的 rect 是 0×0）。 */
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  min-height: 32px;
+  flex: none;
+  border-radius: 9px;
+  font-size: 14px;
+  margin: 0 auto;
+}
+/* 只收名字那层 —— 字标 .lg 本身也是个 div，用 .brand > div 会把它一起埋掉。
+   （实测踩过：字标 rect 变成 0×0，图标条顶上一个圆都没了。） */
+.app-mn.focus .brand > div:not(.lg),
+.app-mn.focus .navgrp > .gh,
+.app-mn.focus .nv .cn {
+  display: none;
+}
+.app-mn.focus .navgrp {
+  margin-bottom: 8px;
+}
+/* 分组之间那条分隔：收起后没有分组标题了，得有一根线替代它，
+   否则十一个图标挤成一片，不知道该从哪儿切。 */
+.app-mn.focus .navgrp + .navgrp {
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+.app-mn.focus .nv {
+  width: 40px;
+  height: 34px;
+  justify-content: center;
+  padding: 0;
+  margin: 0 auto 2px;
+  gap: 0;
+  font-size: 0;          /* 名字收掉，只剩图标 —— 但颜色不能跟着透明：
+                           图标是 stroke=currentColor，color 一透明，stroke 也透明了。 */
+}
+.app-mn.focus .nv .ic {
+  width: 17px;
+  height: 17px;
+  opacity: .72;
+}
+.app-mn.focus .nv:hover .ic,
+.app-mn.focus .nv.on .ic {
+  opacity: 1;
+}
+.app-mn.focus .nv.on::before {
+  left: -8px;
+  top: 8px;
+  bottom: 8px;
+}
+/* 底卡「接着学」在 56px 里塞不下一句话，但它是全站唯一的常驻入口，
+   不能整个消失 —— 收成一枚琥珀圆钮，点了就是接着学，图标代替名字。 */
+.app-mn.focus .railbt {
+  display: flex;
+  justify-content: center;
+  margin: 8px 0 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+.app-mn.focus .railbt > *:not(.go) {
+  display: none;
+}
+.app-mn.focus .railbt .go {
+  width: 40px;
+  height: 36px;
+  padding: 0;
+  border-radius: 10px;
+  font-size: 0;
+  display: grid;
+  place-items: center;
+}
+.app-mn.focus .railbt .go .go-t {
+  display: none;
+}
+.app-mn.focus .railbt .go .ic {
+  width: 15px;
+  height: 15px;
+}
+
+/* 收起态顶栏：左边距跟着 56px 的图标条收窄，不然标题会被推得离边缘很远，
+   看着像左边空了一块。 */
+.app-mn.focus .top {
+  padding-left: 18px;
+}
+.app-mn.focus .content {
+  padding-left: 18px;
+  padding-right: 18px;
+}
+
+/* ---- 画布页：工具条住进壳顶栏，三栏撑满剩余高度 ----
+   原来画布自带「身份行 51 + 动作行 37」= 98px 顶栏，加上 .content 的 18px 内边距，
+   舞台被压到 654px。现在工具条并进 56px 的 top，这里只留左中右三栏。 */
+.app-mn .content:has(> .pagein-fill > .cvwrap) {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.app-mn .pagein-fill:has(> .cvwrap) {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* 顶栏里的工具条。高度必须夹在 26px 以内 —— top 只有 56px，
+   按钮一高就得换行，一换行整个壳又变回两行了。 */
+.cvtopbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  overflow: hidden;
+}
+.cvtopbar .cvhost-t {
+  font-size: 10.5px;
+  letter-spacing: .16em;
+  font-weight: 800;
+  color: var(--tx3);
+  text-transform: uppercase;
+  flex: none;
+}
+.cvtopbar .cvdiv {
+  flex: none;
+  width: 1px;
+  height: 16px;
+  background: var(--line2);
+  margin: 0 4px;
+}
+.cvtopbar .cvt {
+  width: 190px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--tx);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -.01em;
+}
+.cvtopbar .cvt:hover { border-color: var(--line); background: var(--card); }
+.cvtopbar .cvt:focus { outline: 0; border-color: var(--act); background: var(--card); }
+.cvtopbar .cvst {
+  flex: none;
+  font-size: 10.5px;
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+.cvtopbar .cvst.ok { color: var(--ok); background: rgba(79,196,135,.1); }
+.cvtopbar .cvst.wait { color: var(--warn); background: rgba(255,192,66,.1); }
+.cvtopbar .cvnum {
+  flex: none;
+  font-size: 10.5px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+}
+.cvtopbar .cvbtn {
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid transparent;
+  background: transparent;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--tx2);
+  gap: 4px;
+}
+.cvtopbar .cvbtn:hover:not([disabled]) {
+  background: var(--card);
+  border-color: var(--line);
+  color: var(--tx);
+}
+.cvtopbar .cvbtn[disabled] { opacity: .32; }
+.cvtopbar .cvbtn.on,
+.cvtopbar .cvbtn.act {
+  background: rgba(255,176,32,.14);
+  border-color: rgba(255,176,32,.4);
+  color: var(--act);
+}
+.cvtopbar .cvbtn.act { font-weight: 750; }
+.cvtopbar .cvbtn .ic { width: 14px; height: 14px; flex: none; }
+.cvtopbar .cvbtn em { font-style: normal; }
+.cvtopbar .cvbtn .cvcnt {
+  font-size: 9.5px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--card3);
+  color: var(--tx2);
+  font-variant-numeric: tabular-nums;
+}
+.cvtopbar .cvfind-inp {
+  height: 26px;
+  width: 168px;
+}
+
+/* ------------------------------------------------------------------ 外壳 */
+/* rail 236 / top 56 / body padding 22 26 —— design-v6.html:49,70,79 */
+.app-mn .rail {
+  width: 236px;
+  flex: none;
+  background: var(--bg2);
+  padding: 18px 12px 14px;
+}
+.app-mn .rail-in {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0;
+}
+.app-mn .brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  padding: 4px 8px 18px;
+}
+.app-mn .brand .lg {
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: 11px;
+  background: linear-gradient(150deg, #FFC55C, #E8880B);
+  display: grid;
+  place-items: center;
+  font-size: 17px;
+  font-weight: 800;
+  color: #2A1600;
+  box-shadow: 0 6px 18px -8px #FFB020;
+}
+.app-mn .brand b {
+  display: block;
+  font-size: 14.5px;
+  font-weight: 750;
+  letter-spacing: -.01em;
+}
+.app-mn .brand span {
+  display: block;
+  font-size: 10.5px;
+  color: var(--tx3);
+  letter-spacing: .06em;
+  margin-top: 2px;
+}
+.app-mn .nav {
+  display: flex;
+  flex-direction: column;
+}
+.app-mn .navgrp {
+  margin-bottom: 15px;
+}
+.app-mn .navgrp > .gh {
+  font-size: 10px;
+  letter-spacing: .2em;
+  font-weight: 800;
+  color: var(--tx3);
+  padding: 0 12px 7px;
+}
+/* 一条 34px，比老壳矮 —— 侧栏是路标不是内容 */
+.app-mn .nv {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 11px;
+  border-radius: 9px;
+  font-size: 13.5px;
+  color: var(--tx2);
+  text-align: left;
+  position: relative;
+  margin-bottom: 2px;
+  transition: background .16s var(--ease), color .16s var(--ease);
+}
+.app-mn .nv:hover {
+  background: var(--card);
+  color: var(--tx);
+}
+.app-mn .nv .ic {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  opacity: .62;
+}
+.app-mn .nv .cn {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -.01em;
+}
+.app-mn .nv.on {
+  background: var(--card2);
+  color: var(--tx);
+  font-weight: 650;
+}
+.app-mn .nv.on::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 2.5px;
+  border-radius: 2px;
+  background: var(--act);
+}
+.app-mn .nv.on .cn {
+  color: var(--act);
+}
+.app-mn .nv.on .ic {
+  opacity: .95;
+  color: var(--act);
+}
+.app-mn .railbt {
+  flex: none;
+  margin-top: auto;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 12px 13px 13px;
+}
+.app-mn .railbt .t {
+  font-size: 10px;
+  letter-spacing: .14em;
+  font-weight: 800;
+  color: var(--tx3);
+}
+.app-mn .railbt b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+  margin-top: 6px;
+  line-height: 1.5;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.app-mn .railbt .m {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--card3);
+  margin-top: 10px;
+  overflow: hidden;
+}
+.app-mn .railbt .m i {
+  display: block;
+  height: 100%;
+  background: var(--act);
+}
+.app-mn .railbt .go {
+  margin-top: 11px;
+  width: 100%;
+  height: 29px;
+  border-radius: 9px;
+  background: var(--act);
+  color: var(--onact);
+  font-size: 11.5px;
+  font-weight: 750;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+/* 展开态图标只是个小箭头，跟字一起居中；收起时字没了，图标得自己撑住那个方块。 */
+.app-mn .railbt .go .ic {
+  width: 13px;
+  height: 13px;
+  flex: none;
+}
+.app-mn .railbt .go:hover {
+  background: var(--act2);
+}
+.app-mn .railbt .go.ghost {
+  background: transparent;
+  color: var(--tx2);
+  border: 1px solid var(--line2);
+}
+.app-mn .railbt .go.ghost:hover {
+  background: var(--card2);
+  color: var(--tx);
+}
+
+/* top：56px 一行 —— 页面名 + 一句副标题 + 右侧三个 pill */
+.app-mn .top {
+  height: 56px;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 0 26px;
+  border-bottom: 1px solid var(--line);
+}
+.app-mn .top h2 {
+  font-size: 15.5px;
+  font-weight: 750;
+  letter-spacing: -.015em;
+  white-space: nowrap;
+}
+.app-mn .top .nt {
+  font-size: 12px;
+  color: var(--tx3);
+  padding-left: 14px;
+  border-left: 1px solid var(--line2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-mn .top .sp {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  /* 不能写 flex:none —— 画布页把自己的整条工具条塞进这里，满屏按钮加起来
+     能到 1559px，而顶栏只有 1348px。写死 none 的结果是整条顶栏撑到 1681px、
+     溢到屏幕外，「截图」「素材」两个按钮的 x 落在 1496 —— 鼠标根本够不着。
+     允许收缩之后，里面的分组自己换行（见下面的 .cvtop-b 规则）。 */
+  flex: 0 1 auto;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* 画布工具条在顶栏里必须能折行。它是十几个「图标 + 两个字」的按钮，
+   1404 宽的窗口放不下 —— 不折行就只能溢出，而溢出等于按钮消失。
+   折行之后顶栏会从 56px 变成两行；这是可接受的：那也比点不到强。 */
+.app-mn .top:has(.sp .cvtopbar) {
+  height: auto;
+  min-height: 56px;
+  padding-top: 8px;
+  padding-bottom: 8px;
+  align-items: center;
+}
+/* .cvtopbar 自带 overflow:hidden（.cvtopbar:142），搁在顶栏里就变成
+   「右边整条被裁掉」—— 截图、素材两个按钮就是这么消失的。
+   这里放开它，改成折行。 */
+.app-mn .top .sp .cvtopbar {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+  overflow: visible;
+}
+.app-mn .pill {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--rp);
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11.5px;
+  color: var(--tx2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.app-mn .pill b {
+  color: var(--tx);
+  font-weight: 700;
+}
+.app-mn .pill.act {
+  background: #2A1F0C;
+  border-color: #5B4416;
+  color: var(--act2);
+}
+.app-mn .pill.act b {
+  color: var(--act);
+}
+.app-mn .av {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--rp);
+  background: var(--card3);
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tx2);
+}
+.app-mn .content {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 22px 26px;
+}
+
+/* ------------------------------------------------------------------ KPI */
+/* 四格一格到底，38px 数字 —— 一页只在这一处允许出现 38px */
+.kpi-mn {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.kpi-mn > * {
+  background: var(--bg2);
+  padding: 16px 20px 17px;
+  min-width: 0;
+}
+/* 可点的那一格：整格是 button，右下角一枚箭头才是「能点」的标志。
+   平时刻意几乎不动，只在 hover / focus 时把箭头推出一点、底色调亮一档 ——
+   KPI 这块地儿是给人读数的，不能做成一排五颜六色的按钮。 */
+.kpi-mn > .kjump-mn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  position: relative;
+  transition: background-color var(--t2) var(--ease);
+}
+.kpi-mn > .kjump-mn:hover { background: var(--card); }
+.kpi-mn > .kjump-mn:focus-visible { outline: 2px solid var(--act); outline-offset: -2px; }
+.kpi-mn > .kjump-mn .karr {
+  position: absolute;
+  right: 14px;
+  bottom: 12px;
+  font-size: 17px;
+  line-height: 1;
+  color: var(--tx3);
+  opacity: .35;
+  transform: translateX(-2px);
+  transition: opacity var(--t2) var(--ease), transform var(--t2) var(--ease);
+}
+.kpi-mn > .kjump-mn:hover .karr,
+.kpi-mn > .kjump-mn:focus-visible .karr { opacity: 1; transform: translateX(0); color: var(--act); }
+.kpi-mn .k {
+  font-size: 10.5px;
+  letter-spacing: .15em;
+  font-weight: 800;
+  color: var(--tx3);
+}
+.kpi-mn .v {
+  margin-top: 9px;
+  font-size: 38px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.kpi-mn .v small {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--tx3);
+  letter-spacing: 0;
+  margin-left: 4px;
+}
+.kpi-mn .v.d {
+  color: var(--tx2);
+}
+.kpi-mn .s {
+  margin-top: 9px;
+  font-size: 11.5px;
+  color: var(--tx3);
+  line-height: 1.55;
+}
+.kpi-mn .m {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--card3);
+  margin-top: 9px;
+  overflow: hidden;
+}
+.kpi-mn .m i {
+  display: block;
+  height: 100%;
+  background: var(--act);
+  border-radius: 2px;
+}
+/* 第四格里要放输入框（每天学多久）时，跟着 38px 那一档走 */
+.kpi-mn .v input {
+  width: 92px;
+  height: 34px;
+  margin-top: 1px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--line2);
+  color: var(--tx);
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+  outline: none;
+  padding: 0;
+}
+.kpi-mn .v input:focus {
+  border-bottom-color: var(--act);
+}
+
+/* ------------------------------------------------------- 分区 / 结论条 */
+.sect-mn {
+  margin-top: 20px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.sect-mn h3 {
+  font-size: 13px;
+  font-weight: 750;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.sect-mn .ln {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+/* 分区标题后面那条贯穿线，一页出现四五次就成了噪音 ——
+   它本来只是把标题和右边的小字隔开，不需要横跨整页。
+   短一点、淡一点，够分清左右就够了。 */
+.sect-mn .ln {
+  background: linear-gradient(90deg, var(--line) 0%, transparent 100%);
+  max-width: 180px;
+}
+.sect-mn .rt {
+  font-size: 11px;
+  color: var(--tx3);
+  white-space: nowrap;
+}
+
+.verdict-mn {
+  margin-top: 20px;
+  background: var(--card);
+  border-radius: 14px;
+  padding: 15px 18px 16px 20px;
+  position: relative;
+  overflow: hidden;
+  border-left: 3px solid var(--warn);
+}
+.verdict-mn.good {
+  border-left-color: var(--ok);
+}
+.verdict-mn b {
+  font-size: 13.5px;
+  font-weight: 700;
+}
+.verdict-mn p {
+  margin-top: 6px;
+  font-size: 12.5px;
+  line-height: 1.8;
+  color: var(--tx3);
+}
+.verdict-mn .tag {
+  float: right;
+  font-size: 10.5px;
+  letter-spacing: .12em;
+  font-weight: 800;
+  color: var(--warn);
+  margin-top: 2px;
+  margin-left: 14px;
+}
+.verdict-mn.good .tag {
+  color: var(--ok);
+}
+
+/* ------------------------------------------------------------ 通用小块 */
+.twocol-mn {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr);
+  gap: 18px;
+  margin-top: 18px;
+}
+.twocol-mn.half {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.blkcard-mn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 16px 18px 17px;
+  min-width: 0;
+}
+.blkcard-mn .hd {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-bottom: 12px;
+}
+.blkcard-mn .hd b {
+  font-size: 13px;
+  font-weight: 750;
+}
+.blkcard-mn .hd span {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--tx3);
+  text-align: right;
+}
+/* 一行一件事：78px 标签 + 进度条 + 64px 右值 */
+/* 一行一条：标签 / 条 / 右值。
+   原来 7+7 太紧 —— 中文标签 11px 只占 15px 行高，两条之间净剩 14px，
+   读起来像一坨（统计页「讲题覆盖」那三条就是这么糊在一起的）。
+   现在 9+9，行与行之间还有 1px 分隔线做呼吸。 */
+.li-mn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  font-size: 12.5px;
+  color: var(--tx2);
+  flex-wrap: nowrap;
+}
+.li-mn + .li-mn {
+  border-top: 1px solid var(--line);
+}
+.li-mn:last-child { padding-bottom: 2px; }
+.li-mn .lb {
+  /* 78px 是设计稿给的标签列宽，但中文字比 11px 数字宽 ——
+     加上 min-width + nowrap，长标签只省略不换行，整行高度才稳。 */
+  width: auto;
+  min-width: 78px;
+  flex: 0 0 auto;
+  color: var(--tx3);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.li-mn .tr-mn {
+  flex: 1 1 auto;
+  min-width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--card3);
+  overflow: hidden;
+}
+.li-mn .tr-mn i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+.li-mn .vv {
+  /* 数字占 64px，但说明性的值（「12 题 · 讲对 3」）要能再宽一点，否则被截 */
+  width: auto;
+  min-width: 64px;
+  flex: none;
+  text-align: right;
+  font-size: 11.5px;
+  color: var(--tx2);
+  font-variant-numeric: tabular-nums;
+}
+/* 卡片里的小数字：22px，比 KPI 低一档 */
+.mini-mn {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+.mini-mn .m {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  padding: 10px 11px;
+  min-width: 0;
+}
+.mini-mn .m .k {
+  font-size: 10px;
+  letter-spacing: .1em;
+  font-weight: 800;
+  color: var(--tx3);
+}
+.mini-mn .m .v {
+  margin-top: 6px;
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  font-variant-numeric: tabular-nums;
+}
+.mini-mn .m .v small {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--tx3);
+  margin-left: 2px;
+  letter-spacing: 0;
+}
+.note-mn {
+  margin-top: 12px;
+  font-size: 11px;
+  line-height: 1.8;
+  color: var(--tx3);
+}
+/* 只有「一段说明接在别的内容后面」时才需要一条分隔线；
+   同一页上出现两三段说明时，这些线就变成纯噪音。
+   现在默认不带线，需要隔断的地方用间距表达。 */
+.note-mn.rule {
+  padding-top: 11px;
+  border-top: 1px solid var(--line);
+}
+.note-mn.bare {
+  border-top: 0;
+  padding-top: 0;
+}
+.cal-mn {
+  /* 一周一行、10 行往下（7 列 × 10 行 = 70 天）：这样「同一列 = 同一个星期几」，
+     横着扫能看出「每个周三都空着」，比 14×5 那种铺法有用得多。
+
+     格子必须保持正方：列宽 1fr 铺满卡片（原来写死 18px 右侧空一大片），
+     行高也用 1fr 跟着列宽走，再由 i 的 aspect-ratio 锁成正方形。
+     只用列 1fr + 行固定，会被拉成竖长条。 */
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  grid-template-rows: repeat(7, minmax(0, 1fr));
+  grid-auto-flow: column;
+  gap: 5px;
+  max-width: 300px;
+}
+.cal-mn i {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: var(--card3);
+}
+.cal-mn i.a {
+  background: #4A3611;
+}
+.cal-mn i.b {
+  background: var(--act);
+}
+.empty-mn {
+  padding: 26px 18px;
+  text-align: center;
+  font-size: 12px;
+  line-height: 1.8;
+  color: var(--tx3);
+}
+.empty-mn b {
+  display: block;
+  font-size: 13px;
+  color: var(--tx2);
+  margin-bottom: 6px;
+}
+
+/* ------------------------------------------------------------------ 练习 */
+/* chip 行：横 7 竖 8。原来只写 gap:7px，chip 一多折行就上下贴在一起，
+   看起来像一整块（考场页那排「阅读理解第1篇 5 / 第2篇 5…」就是这么糊的）。
+   行本身是「换了一件事」的分界，下面必须留出 16px 才进内容区。 */
+.srcbar-mn {
+  display: flex;
+  gap: 8px 7px;
+  flex-wrap: wrap;
+  margin-bottom: 16px;
+}
+.srcbar-mn:last-child { margin-bottom: 0; }
+.schip-mn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--rp);
+  background: var(--card);
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12px;
+  color: var(--tx2);
+  transition: background .16s var(--ease), border-color .16s var(--ease);
+}
+.schip-mn:hover {
+  border-color: var(--line2);
+  color: var(--tx);
+}
+.schip-mn .dot {
+  width: 6px;
+  height: 6px;
+  border-radius: var(--rp);
+  flex: none;
+}
+.schip-mn b {
+  font-weight: 650;
+  color: var(--tx);
+}
+.schip-mn i {
+  font-style: normal;
+  font-size: 10.5px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+}
+.schip-mn.on {
+  background: #2A1F0C;
+  border-color: #6A4E18;
+}
+.schip-mn.on b {
+  color: var(--act);
+}
+/* 主内容 + 258px 窄栏。
+   窄屏（<1180）整段塌成一列，纸自己居中限宽 —— 而不是挤在左边留一大片黑。
+   .wide 是宽屏档：纸的阅读宽度上限从 780 放到 1080，
+   窄栏照旧贴右，中间的空白交给 gap。 */
+.pracgrid-mn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 258px;
+  gap: 18px;
+  margin-top: 16px;
+  /* 纸按内容长，不再被格子拉到整列那么高 ——
+     stretch 会让「一题四选项」的纸变成 1200px 的一大片空白。
+     纸的高度由题目决定，右边窄栏对齐到顶即可。 */
+  align-items: start;
+}
+/* 纸按内容长之后，「一题两个选项」的纸只有 250 高，下面空出大半屏。
+   这不是靠拉高解决的 —— 是靠把这一行的比例给对：
+   纸占满主栏（1fr 已经被窄栏让开），内容自然贴着顶上排。 */
+.content:has(> .pagein > .pracgrid-mn) > .pagein > .pracgrid-mn > .paper-mn {
+  min-width: 0;
+}
+
+/* 纸：一页唯一一块亮面 */
+.paper-mn {
+  background: var(--paper);
+  color: var(--ptx);
+  border-radius: 16px;
+  padding: 20px 26px 18px;
+  box-shadow: 0 30px 70px -40px #000;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.paper-mn .ph {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid var(--paperline);
+}
+.paper-mn .kick {
+  font-size: 10px;
+  letter-spacing: .2em;
+  font-weight: 800;
+  color: var(--ptx3);
+}
+.paper-mn .ph .sp {
+  margin-left: auto;
+  display: flex;
+  gap: 7px;
+  flex-wrap: wrap;
+}
+.pchip-mn {
+  height: 23px;
+  padding: 0 9px;
+  border-radius: var(--rp);
+  background: var(--paper2);
+  border: 1px solid var(--paperline);
+  display: flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 650;
+  color: var(--ptx2);
+  white-space: nowrap;
+}
+.stem-mn {
+  margin-top: 13px;
+  font-size: 16.5px;
+  line-height: 1.85;
+  font-weight: 520;
+  letter-spacing: .002em;
+}
+.stem-mn .u {
+  border-bottom: 1.5px solid #B9A277;
+  padding-bottom: 1px;
+  font-weight: 700;
+}
+.opts-mn {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 7px;
+}
+.opt-mn {
+  display: flex;
+  gap: 11px;
+  align-items: flex-start;
+  padding: 9px 13px;
+  border-radius: 11px;
+  background: var(--paper2);
+  border: 1px solid transparent;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--ptx2);
+  text-align: left;
+  min-width: 0;
+}
+.opt-mn .l {
+  width: 19px;
+  height: 19px;
+  border-radius: 6px;
+  background: #E2D7BF;
+  font-size: 11px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-top: 1px;
+  color: var(--ptx2);
+}
+.opt-mn:hover {
+  border-color: var(--paper3);
+}
+.opt-mn.on {
+  background: #F7EFDA;
+  border-color: #EFD398;
+  box-shadow: inset 3px 0 0 var(--act);
+  color: var(--ptx);
+}
+.opt-mn.on .l {
+  background: var(--act);
+  color: var(--onact);
+}
+.opt-mn.ok {
+  background: #E8F0E2;
+  border-color: #BFE2BE;
+  color: var(--ptx);
+}
+.opt-mn.ok .l {
+  background: #2E8A57;
+  color: #fff;
+}
+.opt-mn.no {
+  background: #F5E8E3;
+  border-color: #F2C9BE;
+  color: var(--ptx3);
+}
+.opt-mn.no .l {
+  background: #C4492A;
+  color: #fff;
+}
+.opt-mn .t {
+  min-width: 0;
+  word-break: break-word;
+}
+
+/* 讲解：四段固定「定位 / 依据 / 判断 / 修复」 */
+/* 纸里的讲解块：先让它正常高度，纸多出来的空间交给页脚（上面的 margin-top:auto）。
+   但 .exp-mn 自己别去抢 —— 抢了会把 pagefoot 顶不下去。 */
+.exp-mn {
+  margin-top: 13px;
+  padding-top: 13px;
+  border-top: 1px solid var(--paperline);
+  min-width: 0;
+}
+.exhd-mn {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+}
+.vd-mn {
+  font-size: 11.5px;
+  font-weight: 800;
+  padding: 4px 10px;
+  border-radius: var(--rp);
+  background: #E2EFE4;
+  color: #1E7145;
+  letter-spacing: .02em;
+}
+.vd-mn.part {
+  background: #F4EBD6;
+  color: #8A6414;
+}
+.vd-mn.weak {
+  background: #FBE9E4;
+  color: #A6371A;
+}
+.conf-mn {
+  font-size: 11px;
+  color: var(--ptx3);
+  font-variant-numeric: tabular-nums;
+}
+.who-mn {
+  margin-left: auto;
+  font-size: 10.5px;
+  color: var(--ptx3);
+  letter-spacing: .04em;
+}
+.expart-mn {
+  margin-top: 11px;
+  display: flex;
+  gap: 12px;
+}
+.expart-mn .ix {
+  width: 46px;
+  flex: none;
+  font-size: 10px;
+  letter-spacing: .14em;
+  font-weight: 800;
+  color: var(--ptx3);
+  padding-top: 2px;
+}
+.expart-mn .tx {
+  flex: 1;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.85;
+  color: var(--ptx2);
+}
+.quote-mn {
+  margin-top: 6px;
+  background: var(--paper2);
+  border-left: 2px solid var(--act);
+  border-radius: 0 8px 8px 0;
+  padding: 8px 12px;
+  font-size: 12.5px;
+  line-height: 1.85;
+  color: var(--ptx2);
+}
+.quote-mn.bad {
+  border-left-color: var(--bad);
+  color: var(--ptx3);
+}
+.quote-mn .from {
+  margin-top: 6px;
+  font-size: 10.5px;
+  color: var(--ptx3);
+}
+.optjudge-mn {
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+.oj-mn {
+  display: flex;
+  gap: 7px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ptx3);
+  min-width: 0;
+}
+.oj-mn b {
+  color: var(--ptx2);
+  font-weight: 750;
+  min-width: 46px;
+  flex: none;
+}
+.oj-mn.y b {
+  color: #1E7145;
+}
+.oj-mn.n b {
+  color: #A6371A;
+}
+.fixrow-mn {
+  margin-top: 7px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.fx-mn {
+  background: var(--paper2);
+  border-radius: 9px;
+  padding: 8px 11px 9px;
+}
+.fx-mn b {
+  display: block;
+  font-size: 10px;
+  letter-spacing: .12em;
+  font-weight: 800;
+  color: var(--ptx3);
+}
+.fx-mn span {
+  display: block;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--ptx2);
+  margin-top: 4px;
+}
+.fx-mn em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--ptx3);
+  margin-top: 4px;
+}
+.vote-mn {
+  margin-top: 13px;
+  padding-top: 11px;
+  border-top: 1px solid var(--paperline);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  color: var(--ptx3);
+  flex-wrap: wrap;
+}
+.vb-mn {
+  height: 27px;
+  padding: 0 11px;
+  border-radius: 8px;
+  background: var(--paper2);
+  border: 1px solid var(--paperline);
+  display: flex;
+  align-items: center;
+  font-size: 11.5px;
+  color: var(--ptx2);
+  font-weight: 650;
+}
+.vb-mn:hover {
+  border-color: #C6B58E;
+}
+.vb-mn.y {
+  border-color: #BFE2BE;
+  background: #E8F0E2;
+  color: #1E7145;
+}
+/* 纸上的主行动按钮：琥珀实心，深字 */
+.pbtn-mn {
+  height: 29px;
+  padding: 0 13px;
+  border-radius: 9px;
+  background: var(--act);
+  color: var(--onact);
+  font-size: 12px;
+  font-weight: 750;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pbtn-mn:hover {
+  background: var(--act2);
+}
+.pbtn-mn.ghost {
+  background: transparent;
+  color: var(--ptx2);
+  border: 1px solid var(--paperline);
+}
+.pbtn-mn.ghost:hover {
+  background: var(--paper2);
+}
+/* 纸是 flex column：把页脚推到底，纸再高也像是「一页题」，不像半页。
+   注意要压过 .paperfoot-mn 自己的 margin-top:11px（同权重时后者胜出）。 */
+
+.paperfoot-mn {
+  /* auto 而不是 11px：纸被格子撑高时，页脚沉到底；纸内容比格子高时它就是 11px。 */
+  margin-top: auto;
+  padding-top: 11px;
+  border-top: 1px solid var(--paperline);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--ptx3);
+}
+.paperfoot-mn .rt {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 右窄栏 258px：放「这数字怎么来的」 */
+.side-mn {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  /* 栅格的行高由较高的那一列决定。窄栏一旦允许被内容撑高（flex 子项默认
+     min-height:auto），258px 那栏里的两行小字就能把整行顶到 895，
+     纸跟着被拉到 895，比可视区还高。让它不许撑，行高才回到纸自己的高度。 */
+  min-height: 0;
+}
+.sc-mn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 15px 15px;
+}
+.sc-mn .h {
+  font-size: 10px;
+  letter-spacing: .15em;
+  font-weight: 800;
+  color: var(--tx3);
+  margin-bottom: 10px;
+}
+.row-mn {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 6px 0;
+  color: var(--tx3);
+}
+/* 窄栏只有 258px：左标签固定不吃宽度，右值可以换行但至少占 60%
+   —— 否则「2023 年 · 广东《公共英语》真题+答案」会把「卷名」挤成两行。 */
+.row-mn > span {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+.row-mn > b {
+  flex: 1 1 auto;
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+.row-mn b {
+  color: var(--tx2);
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.bar-mn {
+  margin-top: 9px;
+}
+.bar-mn .lb {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--tx3);
+  margin-bottom: 5px;
+}
+.bar-mn .lb b {
+  color: var(--tx2);
+  font-variant-numeric: tabular-nums;
+  font-weight: 650;
+}
+.tr-mn {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--card3);
+  overflow: hidden;
+}
+.tr-mn i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+}
+
+/* ------------------------------------------------------------------ 课表 */
+.wk-mn {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 16px;
+  align-items: start;
+}
+.wcol-mn {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  /* 一列里块很多时，把这一列自己的滚动条打开 ——
+     原来给 max-height 让它自然撑开，结果整页高度由最长那列决定，
+     底下的「本周合计」和「砍掉的 N 讲」被顶到屏幕外面去了。 */
+  max-height: 470px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  padding: 10px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+  /* 每列等宽等高：内容少的列不塌成半截，七列看起来才是一排 */
+  align-self: stretch;
+}
+.wcol-mn.today {
+  border-color: #6A4E18;
+  background: #191408;
+}
+.wcol-mn .dh {
+  display: flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 1px 3px 5px;
+}
+.wcol-mn .dh b {
+  font-size: 12.5px;
+  font-weight: 750;
+}
+.wcol-mn .dh span {
+  font-size: 10.5px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+}
+.wcol-mn .dh em {
+  margin-left: auto;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--tx3);
+}
+.wcol-mn.today .dh b,
+.wcol-mn.today .dh em {
+  color: var(--act);
+}
+.blk-mn {
+  /* 背景用 card2（比列底 --bg2 亮一档）：块与块之间靠底色分层，
+     不再挤在一起像一整块。原来 card 跟列底只差一点点，四块连成一片。 */
+  background: var(--card2);
+  border-radius: 8px;
+  /* 七列时一列只有 155px 宽，块必须极省：标题一行、正文最多两行、底下一行数字。
+     原来 padding 8/9 + 三处 margin 叠起来，一天四块就 700px 高，
+     把「本周合计」和「砍掉的 N 讲」全顶出首屏。 */
+  padding: 5px 8px 6px;
+  border-left: 2.5px solid var(--line2);
+  min-width: 0;
+}
+.blk-mn b {
+  display: block;
+  font-size: 10px;
+  font-weight: 750;
+  letter-spacing: .02em;
+  opacity: .9;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.blk-mn span {
+  display: -webkit-box;
+  -webkit-line-clamp: 1;
+  -webkit-box-orient: vertical;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--tx2);
+  margin-top: 2px;
+  overflow: hidden;
+}
+.blk-mn em {
+  display: block;
+  font-style: normal;
+  font-size: 9.5px;
+  color: var(--tx3);
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
+/* 七列 × 每天 5~8 块时，一列必须能在一屏里看完 —— 块标题留一行、
+   正文留一行、时长贴着走；多出来的字数靠 hover title 给。
+   450px 那版每天第六块开始就要滚，而滚轮藏在窄列的右边缘，很难发现。 */
+.blk-mn.cs { border-left-color: var(--cs); }
+.blk-mn.cs b { color: var(--cs); }
+.blk-mn.en { border-left-color: var(--en); }
+.blk-mn.en b { color: var(--en); }
+.blk-mn.math { border-left-color: var(--math); }
+.blk-mn.math b { color: var(--math); }
+.blk-mn.pol { border-left-color: var(--pol); }
+.blk-mn.pol b { color: var(--pol); }
+.blk-mn.void {
+  background: transparent;
+  border: 1px dashed var(--line2);
+  border-left: 2.5px dashed var(--line2);
+}
+.blk-mn.void span {
+  color: var(--tx3);
+  font-size: 11px;
+}
+.wksum-mn {
+  margin-top: 12px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px 18px;
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+.wksum-mn .ws-l {
+  flex: none;
+}
+.wksum-mn .ws-l b {
+  display: block;
+  font-size: 13px;
+  font-weight: 750;
+}
+.wksum-mn .ws-l span {
+  display: block;
+  font-size: 11px;
+  color: var(--tx3);
+  margin-top: 4px;
+  font-variant-numeric: tabular-nums;
+}
+.wksum-mn .ws-bar {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  overflow: hidden;
+  display: flex;
+  gap: 1px;
+  background: var(--card3);
+}
+.wksum-mn .ws-bar i {
+  display: block;
+  height: 100%;
+  /* flex 子项默认 flex-shrink:1 —— 五段按百分比给宽度时会被一起压扁，
+     于是彩色段全挤在左边、右边空出一大片。钉住不许缩。
+     注意：宽度是 TSX 内联给的百分比，这里不能再写 width，否则会覆盖掉。 */
+  flex: 0 0 auto;
+  min-width: 1px;
+}
+.wksum-mn .ws-r {
+  flex: none;
+  max-width: 300px;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--tx3);
+  text-align: right;
+}
+.cuts-mn {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.cut-mn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 11px 13px 12px;
+  border-left: 2.5px solid var(--line2);
+  min-width: 0;
+}
+.cut-mn .sub {
+  display: block;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .12em;
+}
+.cut-mn b {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.5;
+  margin-top: 6px;
+  color: var(--tx2);
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+.cut-mn .why {
+  display: block;
+  font-size: 10.5px;
+  line-height: 1.6;
+  color: var(--tx3);
+  margin-top: 7px;
+}
+.cut-mn em {
+  display: block;
+  font-style: normal;
+  font-size: 10px;
+  color: var(--tx3);
+  margin-top: 6px;
+  font-variant-numeric: tabular-nums;
+  opacity: .8;
+}
+
+/* ---------------------------------------------------------------- 课程库 */
+.cgrid-mn {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 16px;
+}
+.cc-mn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  overflow: hidden;
+  text-align: left;
+  min-width: 0;
+}
+.cc-mn .cv {
+  height: 96px;
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  padding: 11px 13px;
+  background-size: cover;
+  background-position: center;
+}
+.cc-mn .cv::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, transparent 30%, rgba(10, 8, 6, .72));
+}
+/* 有真封面时，图是背景不是 <img> —— 但 B 站封面本身带字（课程名、老师名），
+   压在渐变上会跟下面的标题打架。给真封面单独调子：压暗 + 轻微去饱和，
+   它是「这门课的身份证」，不是正文。 */
+.cc-mn .cv.has-cover {
+  /* 真封面（B 站截图）自带大标题字，压暗也去不掉 —— 它压在科目标签上。
+     封面只负责「这门课长什么样」，名字、讲数、进度全在 .in 里：
+     把图压到 45% 亮度，让它退回成一块有颜色的底。 */
+  height: 96px;
+}
+/* 有真封面时的压暗分两层，各管一段：
+   · ::before 整张压到 62% —— B 站封面是大字标题图（「专升本计算机（已完结版）」），
+     不压就与卡内标题正面撞；压死到 .985 又变成一块黑，等于没封面。62% 让它退成
+     「有颜色的底 + 隐约的字形」。
+   · ::after 只管下半截，把封面上沿和卡内标题之间接住，不留硬边。 */
+.cc-mn .cv.has-cover::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  background: var(--bg);
+  /* 0.72 是试出来的：B 站封面几乎都是白字黑底的大标题，「专升本计算机（已完结版）」
+     那几个字在 0.62 下还清楚得像卡内标题。0.72 让它退到「隐约有字」，同时底色还在。
+     再高（0.9+）就成一块黑，等于没有封面。 */
+  opacity: .72;
+}
+.cc-mn .cv.has-cover::after {
+  z-index: 2;
+  /* 下半截再压一道，接住卡内标题，不留硬边 */
+  background: linear-gradient(180deg, rgba(10, 8, 6, 0) 0%, rgba(10, 8, 6, .34) 55%, rgba(10, 8, 6, .86) 100%);
+}
+/* 科目标签加个底，无论如何都能读 */
+.cc-mn .cv .bd {
+  background: rgba(10, 8, 6, .55);
+  padding: 2px 7px;
+  border-radius: 5px;
+}
+.cc-mn .cv .bd {
+  position: relative;
+  z-index: 2;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  color: #fff;
+  opacity: .85;
+}
+.cc-mn .in {
+  padding: 12px 14px 14px;
+}
+.cc-mn .in b {
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.4;
+  display: block;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+}
+.cc-mn .in .m {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+.cc-mn .in .tr-mn {
+  margin-top: 10px;
+  height: 3px;
+}
+.cc-mn .in .ft {
+  margin-top: 8px;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 10.5px;
+  color: var(--tx3);
+}
+.cc-mn .in .ft .go {
+  color: var(--act);
+  font-weight: 700;
+  white-space: nowrap;
+}
+.cc-mn.dash {
+  background: var(--bg2);
+  border-style: dashed;
+}
+.cc-mn.dash .in {
+  padding: 26px 16px;
+  text-align: center;
+  color: var(--tx3);
+}
+.cc-mn.dash .plus {
+  font-size: 26px;
+  color: var(--line2);
+  line-height: 1;
+}
+.cc-mn.dash .t1 {
+  margin-top: 8px;
+  font-size: 12px;
+}
+.cc-mn.dash .t2 {
+  margin-top: 4px;
+  font-size: 10.5px;
+  line-height: 1.6;
+}
+.srcs-mn {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 12px;
+}
+.src-mn {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 10px 13px 11px;
+  min-width: 0;
+}
+.src-mn .sh {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.src-mn .sh b {
+  font-size: 12px;
+  font-weight: 700;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tg-mn {
+  flex: none;
+  font-size: 9.5px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-family: var(--mono);
+}
+.tg-mn.ok { background: #16301F; color: #6FC08A; }
+.tg-mn.md { background: #33280F; color: #D6A94A; }
+.tg-mn.im { background: #2A2A2E; color: #9C9CA6; }
+.src-mn .sm {
+  display: flex;
+  gap: 9px;
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+  flex-wrap: wrap;
+}
+.src-mn .sm span + span {
+  border-left: 1px solid var(--line);
+  padding-left: 9px;
+}
+
+/* ------------------------------------------------------------------ 考场 */
+.pgrid-mn {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.pgrid-mn.small {
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  margin-top: 10px;
+}
+.pc-mn {
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 13px 14px 14px;
+  text-align: left;
+  min-width: 0;
+  transition: border-color .16s var(--ease);
+}
+.pc-mn:hover {
+  border-color: var(--line2);
+}
+.pc-mn.on {
+  border-color: #6A4E18;
+  background: #191408;
+}
+.pc-mn .h {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+}
+.pc-mn .yr {
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -.03em;
+  color: var(--tx2);
+  font-variant-numeric: tabular-nums;
+}
+.pc-mn.on .yr {
+  color: var(--act);
+}
+.pc-mn .nm {
+  font-size: 12.5px;
+  font-weight: 650;
+  line-height: 1.4;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* 「网上拉取」的卷要跟自带的 15 套分得清：来源不同，可信度和判分能力都不同 */
+.pc-mn .pw-tag {
+  flex: none;
+  margin-left: auto;
+  font-size: 9.5px;
+  font-weight: 750;
+  letter-spacing: .04em;
+  color: var(--act);
+  padding: 2px 6px;
+  border-radius: 5px;
+  background: rgba(255, 176, 32, .1);
+  border: 1px solid rgba(255, 176, 32, .22);
+}
+.pc-mn .mt {
+  margin-top: 7px;
+  font-size: 10.5px;
+  color: var(--tx3);
+}
+.pc-mn .f {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 11px;
+}
+.pc-mn .f .tr-mn {
+  flex: 1;
+  height: 3px;
+}
+.pc-mn .f span {
+  font-size: 10.5px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.pc-mn .go {
+  margin-top: 10px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--tx3);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pc-mn.on .go {
+  color: var(--act);
+}
+.pc-mn.compact {
+  padding: 10px 12px 11px;
+}
+.pc-mn.compact .yr {
+  font-size: 13px;
+}
+
+/* --------------------------------------------------------- 旧页过渡兜底 */
+/* Today / Classroom / Vocab / Writing / Agent / Canvas 还在用老 ui.css 的 u-* 类。
+   新变量换完了，但那些地方写死的老色号不在 radicals 里 —— 这里只做最小接管：
+   让它们读新变量、数字对齐，不动结构。等下一轮逐页搬到 v6 组件。 */
+.u-page, .u-panel, .u-item, .u-stats, .u-scard {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --------------------------------------------------------- 作文页（过渡）
+   设计稿没画作文页，这里沿用「纸 + 258px 窄栏」的骨架：
+   左半边是题与写作框，右半边是这次判到了什么。 */
+/* 写作框：以前 min-height:240px 且内容一多就无限长，把右栏那张批改卡顶出视口。
+   现在给它自己的滚动容器（max-height:46vh），纸的高度稳住，
+   右边「这次判到了什么」永远跟写作框在同一屏。 */
+.paper-mn .wedit {
+  margin-top: 13px;
+  width: 100%;
+  box-sizing: border-box;
+  /* 高度让给内容：写了三行就占三行，别先占掉半张纸把人挤到下面找按钮。
+     上限用 min() 跟视口挂钩，屏幕矮时输入框跟着矮，按钮始终留在纸上。 */
+  min-height: 132px;
+  max-height: min(46vh, 340px);
+  overflow-y: auto;
+  padding: 11px 13px;
+  border-radius: 11px;
+  border: 1px solid var(--paperline);
+  background: var(--paper2);
+  color: var(--ptx);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.85;
+  resize: vertical;
+}
+.paper-mn .wedit::placeholder {
+  color: var(--ptx3);
+}
+.paper-mn .wedit:focus {
+  outline: none;
+  border-color: #C9B58A;
+  background: var(--paper);
+}
+/* 窄栏里的小卡当第二列时撑满整列，不塌成一条 */
+.pracgrid-mn > .blkcard-mn {
+  align-self: start;
+}
+/* 会点的一行：光标换成手，悬停提一档底色 */
+.src-mn.clickable {
+  cursor: pointer;
+}
+.src-mn.clickable:hover {
+  border-color: var(--line2);
+  background: var(--card2);
+}
+/* 「挑出来的错 / 建议」那种整行长句：标签不限 78px，让它占满 */
+.li-mn.wide .lb {
+  width: auto;
+  flex: 1;
+  color: var(--tx2);
+  line-height: 1.75;
+}
+
+/* --------------------------------------------------------- 设置页（过渡）
+   设置页没有「纸」，全是壳 —— 所以输入与按钮都走深色那套。 */
+/* 下拉框和输入框在深色壳里的两处硬伤：
+   1) 原生 <select> 的展开列表沿用系统色板，深底浅字时选项会黑底黑字；
+   2) 浏览器自动填充会把背景刷成浅黄，浅字直接消失。
+   两条都在这里按住，别让它在哪一页又犯。 */
+select {
+  color-scheme:dark;
+}
+select option {
+  background:var(--card2);
+  color:var(--tx);
+}
+select optgroup {
+  background:var(--card3);
+  color:var(--tx2);
+}
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+textarea:-webkit-autofill {
+  -webkit-text-fill-color:var(--tx);
+  -webkit-box-shadow:0 0 0 1000px var(--card2) inset;
+  caret-color:var(--tx);
+}
+
+.inp-mn {
+  height: 28px;
+  padding: 0 10px;
+  border-radius: 8px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  color: var(--tx);
+  font-family: inherit;
+  font-size: 12px;
+}
+.inp-mn {
+  color-scheme:dark;
+}
+.inp-mn::placeholder {
+  color: var(--tx3);
+}
+.inp-mn:focus {
+  outline: none;
+  border-color: var(--act);
+}
+
+/* ---------------------------------------------------- 全站下拉只有一种长相
+   之前下拉有三套：.inp-mn（28 高、--bg 底、原生箭头）、.sel（30 高、--card2、
+   自绘箭头）、.vx-sel（28 高、--card 底、无箭头）。同一页并排看就是三种控件。
+   现在外观一律挂在 select.inp-mn 上，页面只准写 inp-mn 这一个类名，
+   宽度这种「内容决定」的差别才允许单独覆盖。 */
+select.inp-mn {
+  height: 30px;
+  padding: 0 26px 0 10px;
+  background: var(--card2);
+  font-weight: 600;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  /* 自绘箭头：原生箭头是操作系统画的，深底上几乎看不见，
+     各家浏览器画的三角大小位置还都不一样 —— 单看一页不明显，摆一排就乱。 */
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--tx3) 50%),
+    linear-gradient(135deg, var(--tx3) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 13px, calc(100% - 10px) 13px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color .14s;
+}
+select.inp-mn:hover { border-color: var(--line2); }
+select.inp-mn:focus { outline: none; border-color: var(--act); }
+select.inp-mn:disabled { opacity: .4; cursor: default; }
+
+/* ---------------------------------------------------- 自绘下拉弹层（Sel 组件）
+   触发器沿用上面 select.inp-mn 的外观；展开的列表不再交给操作系统 ——
+   option 的行距、高亮、圆角 CSS 管不着，深底上就是一团黑。
+   弹层跟页面同一个色板：同底色、同边框、选中带勾、悬停一行浅底。 */
+.csel {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 30px;
+  padding: 0 26px 0 10px;
+  background: var(--card2);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--tx);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--tx3) 50%),
+    linear-gradient(135deg, var(--tx3) 50%, transparent 50%);
+  background-position: calc(100% - 15px) 13px, calc(100% - 10px) 13px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+  transition: border-color .14s;
+}
+.csel .t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csel:hover, .csel.open { border-color: var(--act); }
+.csel:disabled { opacity: .4; cursor: default; }
+.csel-pop {
+  position: fixed;
+  z-index: 220;
+  background: var(--card2);
+  border: 1px solid var(--line2);
+  border-radius: 10px;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, .38);
+  padding: 5px;
+  max-height: 320px;
+  overflow-y: auto;
+  min-width: 132px;
+}
+.csel-opt {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0 9px;
+  height: 32px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--tx2);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+}
+.csel-opt .lb { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.csel-opt .ck { width: 12px; flex: none; display: inline-flex; color: var(--act); }
+.csel-opt .nt { flex: none; font-size: 10.5px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.csel-opt:hover:not(.dis) { background: var(--card3); color: var(--tx); }
+.csel-opt.on { color: var(--tx); font-weight: 650; }
+.csel-opt.dis { opacity: .35; cursor: default; }
+/* ---------------------------------------------------- 设置页 v7：配置台
+   左侧四个分区只做导航，右侧一行一件事，要填的一律从右侧抽屉改。
+   这里不再有卡片框 —— 分组靠留白与细分隔线，一屏看下来不用在一堆边框里找。 */
+.setpage {
+  display: grid;
+  grid-template-columns: 148px minmax(0, 1fr) auto;
+  gap: 0 20px;
+  align-items: start;
+  padding-top: 6px;
+}
+.setnav {
+  position: sticky; top: 0;
+  display: flex; flex-direction: column; gap: 2px;
+  padding-right: 12px;
+  border-right: 1px solid var(--line);
+  align-self: stretch;
+}
+.setnav-h {
+  font-size: 11px; color: var(--tx3);
+  padding: 6px 10px 8px; letter-spacing: .04em;
+}
+.setnav-i {
+  display: flex; align-items: center; gap: 9px;
+  padding: 8px 10px; border: 0; border-radius: 8px;
+  border-left: 2px solid transparent;
+  background: transparent; color: var(--tx2);
+  font: inherit; font-size: 13px; text-align: left; cursor: pointer;
+}
+.setnav-i svg { opacity: .75; }
+.setnav-i:hover { background: var(--card); color: var(--tx); }
+.setnav-i.on {
+  background: var(--card); color: var(--tx);
+  border-left-color: var(--act); font-weight: 650;
+}
+.setnav-i.on svg { opacity: 1; color: var(--act); }
+
+.setmain { min-width: 0; max-width: 780px; }
+.set-h { font-size: 18px; font-weight: 650; letter-spacing: -.01em; }
+.set-sub { font-size: 12.5px; color: var(--tx2); line-height: 1.7; margin-top: 6px; }
+.set-note {
+  font-size: 12px; color: var(--tx2); line-height: 1.65;
+  margin-top: 12px; padding: 8px 12px;
+  background: var(--bg2);
+  border-left: 2px solid var(--line2);
+  border-radius: 0 6px 6px 0;
+}
+.set-group {
+  font-size: 11.5px; color: var(--tx3);
+  margin: 26px 0 4px; padding-bottom: 7px;
+  border-bottom: 1px solid var(--line);
+}
+.setrow {
+  display: flex; align-items: center; gap: 16px;
+  padding: 13px 0;
+  border-bottom: 1px solid var(--line);
+}
+.setrow-mn { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.setrow-mn b {
+  font-size: 13.5px; font-weight: 650; color: var(--tx);
+  display: flex; align-items: center; gap: 8px;
+}
+.setrow-mn span { font-size: 12px; color: var(--tx2); line-height: 1.6; }
+.setrow-ac { flex: none; display: flex; align-items: center; gap: 8px; }
+.set-cur {
+  font-size: 10.5px; font-weight: 500; color: var(--act);
+  border: 1px solid rgba(255, 176, 32, .38);
+  border-radius: 4px; padding: 1px 5px;
+}
+.set-foot { margin-top: 28px; font-size: 11.5px; color: var(--tx3); line-height: 1.8; }
+.set-foot b { color: var(--tx2); font-weight: 650; }
+
+/* 最近调用：时刻 / 工具名 / 耗时与权限 / 结果，四列对齐，不做卡片 */
+.setlogs { display: flex; flex-direction: column; }
+.setlog {
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr) 118px 44px;
+  gap: 10px; align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--line);
+  font-size: 12px;
+}
+.setlog:last-child { border-bottom: 0; }
+.setlog .t, .setlog .m {
+  color: var(--tx3); font-family: var(--mono); font-size: 11.5px;
+}
+.setlog .n { color: var(--tx); font-family: var(--mono); font-size: 12px; }
+
+/* 右侧抽屉：贴着右边，不铺遮罩 —— 改配置时还要看得见背后的列表 */
+.setsheet {
+  grid-column: 3;
+  width: 360px; position: sticky; top: 0;
+  display: flex; flex-direction: column; gap: 10px;
+  padding: 16px 16px 14px;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-left: 2px solid var(--act);
+  border-radius: 12px;
+  animation: sheetin .16s ease-out;
+}
+@keyframes sheetin {
+  from { opacity: 0; transform: translateX(12px); }
+  to { opacity: 1; transform: none; }
+}
+.setsheet-hd {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px;
+}
+.setsheet-hd b { font-size: 14px; font-weight: 650; }
+.setsheet-sub { font-size: 11.5px; color: var(--tx3); line-height: 1.65; }
+.sfld { display: flex; flex-direction: column; gap: 5px; }
+.sfld > span { font-size: 11px; color: var(--tx3); }
+.sfld .inp-mn { width: 100%; }
+/* 提示行：不是错误，也不是说明段落，是「这一步刚发生了什么」 —— 字号小一档、不占一行高度 */
+.sfld-hint { font-size: 11px; color: var(--tx3); font-style: normal; line-height: 1.6; }
+.sfld-row { display: flex; gap: 6px; }
+.sfld-row .inp-mn { flex: 1; min-width: 0; }
+.sfld-row .pbtn-mn { flex: none; padding: 0 10px; }
+/* 型号清单：拉回来的是真名，点一下填进上面那格；带窗宽的一起填 */
+.smodels {
+  max-height: 156px; overflow-y: auto;
+  border: 1px solid var(--line); border-radius: 8px;
+  background: var(--bg);
+}
+.smodel {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  width: 100%; padding: 7px 10px;
+  background: transparent; border: 0; border-bottom: 1px solid var(--line);
+  color: var(--tx2); font: inherit; font-size: 12px; text-align: left; cursor: pointer;
+}
+.smodel:last-child { border-bottom: 0; }
+.smodel .id { font-family: var(--mono); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.smodel .ctx { flex: none; font-size: 10.5px; color: var(--tx3); font-family: var(--mono); }
+.smodel:hover { background: var(--card); color: var(--tx); }
+.smodel.on { background: rgba(255, 176, 32, .1); color: var(--act); }
+.smodel.on .ctx { color: var(--act); }
+.setsheet-ft { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 6px; }
+
+@media (max-width: 1180px) {
+  .setpage { grid-template-columns: minmax(0, 1fr); }
+  .setnav {
+    flex-direction: row; overflow-x: auto; gap: 4px;
+    border-right: 0; border-bottom: 1px solid var(--line);
+    padding: 0 0 8px; position: static; margin-bottom: 6px;
+  }
+  .setnav-h { display: none; }
+  .setnav-i {
+    border-left: 0; border-radius: 8px 8px 0 0;
+    border-bottom: 2px solid transparent; white-space: nowrap;
+  }
+  .setnav-i.on { border-left-color: transparent; border-bottom-color: var(--act); }
+  .setsheet {
+    grid-column: 1; width: auto; position: static; margin-top: 14px;
+  }
+}
+.pbtn-mn.danger {
+  background: rgba(255, 107, 74, .14);
+  color: var(--bad);
+  border: 1px solid rgba(255, 107, 74, .3);
+}
+.pbtn-mn.danger:hover { background: rgba(255, 107, 74, .22); }
+.pbtn-mn:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 900px) {
+  .set-form-bd { grid-template-columns: 1fr; }
+}
+/* 卡片里的一行：左边说清是什么，右边放操作 */
+.fxrow-mn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 0;
+  font-size: 12.5px;
+  color: var(--tx2);
+}
+.fxrow-mn + .fxrow-mn {
+  border-top: 1px solid var(--line);
+}
+.fxrow-mn .nm {
+  min-width: 0;
+  flex: 1;
+}
+.fxrow-mn .nm b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--tx);
+}
+.fxrow-mn .nm span {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.6;
+  color: var(--tx3);
+}
+.fxrow-mn .ac {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* --------------------------------------------------------- 今日页（过渡）
+   设计稿没画今日页，但「今天先做这个」得是全页最重的一块 ——
+   所以它不塞进 38px 数字里，而是单独一行大字，左边留科目色条。 */
+.tdbig-mn {
+  font-size: 19px;
+  font-weight: 750;
+  line-height: 1.55;
+  letter-spacing: -.01em;
+  color: var(--tx);
+  padding-left: 12px;
+  border-left: 3px solid var(--line2);
+  word-break: break-word;
+}
+/* 编排里的一行：序号线 + 标题 + 右侧动作 */
+.tdrow-mn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 0;
+  min-width: 0;
+}
+.tdrow-mn + .tdrow-mn {
+  border-top: 1px solid var(--line);
+}
+.tdrow-mn .idx {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--card3);
+  color: var(--tx3);
+  font-size: 10.5px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.tdrow-mn.hot .idx {
+  background: var(--act);
+  color: var(--onact);
+}
+.tdrow-mn .nm {
+  flex: 1;
+  min-width: 0;
+}
+.tdrow-mn .nm b {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--tx2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tdrow-mn.hot .nm b {
+  color: var(--tx);
+}
+.tdrow-mn .nm span {
+  display: block;
+  margin-top: 3px;
+  font-size: 11px;
+  line-height: 1.55;
+  color: var(--tx3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tdrow-mn .ac {
+  flex: none;
+}
+
+/* ------------------------------------------------------------------ 响应 */
+/* 设计稿是 1422 宽画的。窄于 1180 时右窄栏掉到下面，不要把它压成一条线。 */
+/* ---------- 课堂两栏开关（顶栏右侧） ----------
+   原来在栏外插了两根 28px 竖条，贴着右栏像两个游标，中间还多出
+   一条没由头的分界线。现在收成顶栏的两个图标开关：
+   按下去 = 这一栏在，弹起来 = 收起来了。 */
+.panels-mn {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--bg);
+  border: 1px solid var(--line);
+}
+.pbtn-mn.icon {
+  width: 26px;
+  height: 24px;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  background: none;
+  border-color: transparent;
+  color: var(--tx3);
+}
+.pbtn-mn.icon:hover { color: var(--tx2); background: var(--card2); }
+.pbtn-mn.icon.on { background: var(--card2); color: var(--act); }
+
+/* ---------- 考试做题态（过渡） ----------
+   这张纸不是练习页那张：做题时一屏要读好几道题，
+   所以题干 15px（练习页 16.5 是单题精读）。
+
+   关键是宽度：给纸一个 780px 的上限并居中，而不是让纸撑满 1600px
+   却只在左边写字 —— 那样右边是整片空白，纸就不像纸了。 */
+/* 只有考场做题态用 .reading：一张纸从头读到尾，780 是舒服的阅读宽。
+   练习页/作文页是「纸 + 窄栏」两栏，纸要铺满栅格给的那一列 ——
+   跟着一起限宽，右边就空出一条谁也没用的黑缝。 */
+.paper-mn.reading {
+  max-width: 780px;
+  margin: 0 auto;
+}
+.paper-mn > .exq-mn { max-width: 100%; }
+.paper-mn .stem-mn.material {
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--ptx2);
+  padding: 10px 13px;
+  background: var(--paper2);
+  border-radius: 10px;
+}
+.stem-mn.q { font-size: 15px; line-height: 1.8; }
+.stem-mn.q .qno {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ptx3);
+  margin-right: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.exq1-mn.first .stem-mn.q { margin-top: 0; }
+.exq1-mn .opts-mn { max-width: 100%; }
+.exq1-mn .opt-mn { font-size: 13.5px; }
+
+/* ---------- 课堂页右栏（过渡） ----------
+   笔记缩略图与截图格。缩略图是服务端 note_list 回的 shape 画出来的真骨架，
+   不是占位图 —— 项目铁律：派生不出的图形不编。 */
+.note-mini-mn {
+  /* 这一块从 <a href="#canvas"> 改成了 <button> —— 原来的链接只会切到画布首页，
+     「打开哪一张」的信息当场丢掉。按钮要额外把 UA 那套样式洗掉：
+     宽度、对齐、字体、内边距、光标，少一样就会看着不像原来那张卡。 */
+  display: block;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-decoration: none;
+  border-radius: 9px;
+  overflow: hidden;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  transition: border-color .14s;
+}
+.note-mini-mn:hover { border-color: var(--line2); }
+.note-mini-mn span {
+  display: block;
+  padding: 5px 7px 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--tx2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shotcell-mn {
+  position: relative;
+  display: block;
+  aspect-ratio: 16 / 10;
+  border-radius: 7px;
+  overflow: hidden;
+  background: var(--card3);
+  border: 1px solid var(--line);
+}
+.shotcell-mn:hover { border-color: var(--line2); }
+.shotcell-mn img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 右栏两张卡上的删除键（2026-10-25 补）
+   用户的原话：「你把截图放在了右手边，我怎么删？你给我按键去删的吗？」
+   —— 上一轮我把删除键加在了画布页的图库和素材库 tab，可他要删的是「课堂右栏」这两格，
+   那两个地方他根本不经过。所以按钮必须长在这张卡自己身上，而且必须常显。
+   两步确认：第一下变红底写「再点一次」，第二下才真删。跟图库、素材库同一套手感。 */
+.note-miniwrap, .shotcellwrap { position: relative; display: block; }
+.note-miniwrap .notedel, .shotcellwrap .shotdel.cell {
+  position: absolute; top: 4px; right: 4px; z-index: 2;
+  display: inline-flex; align-items: center; justify-content: center; gap: 3px;
+  min-width: 20px; height: 20px; padding: 0 4px;
+  border-radius: 6px; border: 1px solid rgba(255,255,255,.16);
+  background: rgba(12,10,8,.74); color: var(--tx3);
+  font-size: 9.5px; font-weight: 700; line-height: 1;
+  opacity: .82;
+  backdrop-filter: blur(3px);
+  transition: opacity .12s var(--ease), background-color .12s var(--ease), color .12s var(--ease);
+}
+.note-miniwrap:hover .notedel, .shotcellwrap:hover .shotdel.cell { opacity: 1; }
+.note-miniwrap .notedel:hover, .shotcellwrap .shotdel.cell:hover {
+  background: rgba(196,73,42,.92); border-color: rgba(255,107,74,.6); color: #fff;
+}
+.note-miniwrap.arming .notedel, .shotcellwrap.arming .shotdel.cell {
+  opacity: 1; background: rgba(196,73,42,.92); border-color: rgba(255,107,74,.7); color: #fff;
+  animation: shotArmPulse 1.1s var(--ease) infinite;
+}
+/* 缩略图塞进右栏那张窄卡：卡里是 196×54 的导图，别让它撑出边框 */
+.note-mini-mn .sthumb.mind.mini { display: block; width: 100%; height: auto; }
+.note-mini-mn .sthumb.mind.mini svg { display: block; width: 100%; height: auto; border-radius: 9px 9px 0 0; }
+
+.shotcell-mn em {
+  position: absolute;
+  left: 4px; bottom: 4px;
+  font-style: normal;
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(0,0,0,.62);
+  color: #fff;
+}
+
+/* ---------------- 双页 / 单页 自适应 ----------------
+   宽屏：纸铺到 1080，右侧窄栏贴右，一块屏两栏都占满（用户原话：「这么大一块屏幕用来干什么」）。
+   窄屏：塌成一列，但纸本人 max-width 780 并居中 —— 不是缩在左边留半屏黑。 */
+@media (min-width: 1500px) {
+  .pracgrid-mn { gap: 24px; }
+  .pracgrid-mn > .paper-mn:not(.reading) { max-width: 1080px; }
+}
+
+/* 考场做题态也是两栏：纸 + 卷信息。空白处放东西，别放着。 */
+.examgrid-mn { align-items: start; }
+.examgrid-mn > .side-mn { position: sticky; top: 0; }
+
+/* ---------- 对开的两页：左文章、右题目 ----------
+   阅读/完形/七选五这类，材料和题目是两件事，塞进一张纸就必然要滚 ——
+   滚上去看第三题的选项，再滚回来找文章第二段，来回几次就废了。
+   所以并排放两页：左边整篇文章，右边题目，两边各滚各的。
+   纸的宽度由这一行决定，不再限 780 —— 两页并排需要的宽度，
+   跟单页阅读的舒适宽度不是一回事。 */
+.spread-mn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 18px;
+  min-width: 0;
+  /* 高度交给内容：两页谁长谁说了算，跟着整页一起滚 */
+  align-items: start;
+}
+.spread-mn > .leaf-mn {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+/* 两页跟着整页一起滚，不各自滚。
+   各自滚看着聪明，实际是：滚轮指着右页，右页滚完了那 5 题就到头了，
+   而左页的文章还剩三分之二没读 —— 用户只会觉得「滚不动」。
+   一整页一个滚动条，滚多长由内容最长的那个决定。 */
+.spread-mn > .leaf-mn > .paper-mn {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-width: none;
+  margin: 0;
+  overflow: visible;
+}
+/* 对开时纸的内边距要收一点：两页各占一半宽，还按 26px 会挤 */
+.examgrid-mn.spread .paper-mn { padding: 18px 22px 16px; }
+.examgrid-mn.spread .stem-mn.q { font-size: 14px; }
+.examgrid-mn.spread .paperbody-mn { min-height: 0; }
+/* 有材料的那一组，纸不再限宽居中 —— 两页要铺满这一行 */
+.examgrid-mn.spread { grid-template-columns: minmax(0, 1fr) 258px; }
+.examgrid-mn.spread > .spread-mn { grid-column: 1; }
+
+/* ── 课堂：进度条上的截帧打点 ────────────────────────────────────── */
+.ticks-mn {
+  position: relative;
+  height: 14px;
+  margin-top: 10px;
+  border-radius: 7px;
+  background: var(--card3);
+  overflow: hidden;
+}
+.ticks-mn .fill {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(255, 176, 32, .18);
+  pointer-events: none;
+}
+.ticks-mn .mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 8px;
+  margin-left: -4px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.ticks-mn .mark::before {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--act);
+}
+.ticks-mn .mark:hover::before { background: var(--act2); box-shadow: 0 0 8px rgba(255, 176, 32, .8); }
+
+@media (max-width: 1180px) {
+  .pracgrid-mn { grid-template-columns: minmax(0, 1fr); }
+  /* 窄屏对开不起：一列上下排，两页各给半屏高，照样各自滚 */
+  .spread-mn { grid-template-columns: minmax(0, 1fr); }
+  .pracgrid-mn > .paper-mn:not(.reading) { max-width: 780px; margin-left: auto; margin-right: auto; }
+  .cgrid-mn { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .cuts-mn { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .srcs-mn { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pgrid-mn { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .pgrid-mn.small { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  .kpi-mn { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* 周列的细滚动条：不抢视觉，但能看出「下面还有」 */
+.wcol-mn::-webkit-scrollbar { width: 4px; }
+.wcol-mn::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+.wcol-mn::-webkit-scrollbar-track { background: transparent; }
+
+/* 练习页的分段行：默认只留「全部 + 当前分段 + N 段」三个小件 */
+.seg-mn { align-items: center; }
+.segbtn-mn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--rp);
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--tx3);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.segbtn-mn:hover { border-color: var(--line2); color: var(--tx2); }
+.segbtn-mn span { font-size: 10.5px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+
+/* 「AI 出题」：跟题源 chip 同一行，但描边用强调色 —— 它是动作，不是题源。
+   生成要十几秒，所以按钮自己会显示「出题中…」（disabled 时压暗）。 */
+.aigen-mn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--rp);
+  background: rgba(255, 176, 32, .1);
+  border: 1px dashed rgba(255, 176, 32, .45);
+  color: var(--act);
+  font-size: 12px;
+  font-weight: 700;
+  font-family: inherit;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.aigen-mn:hover { background: rgba(255, 176, 32, .16); border-style: solid; }
+.aigen-mn:disabled { opacity: .55; cursor: progress; }
+/* 出题那一行：按钮 + 一句实话（看到多少了 / 现在测会偏难）。
+   文案不是装饰 —— 提前测和看完测，难度不一样，得让人自己判断。 */
+.genrow-mn {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px;
+}
+.genrow-n { font-size: 11.5px; color: var(--tx3); line-height: 1.6; }
+.genmsg-mn {
+  margin-top: 10px; padding: 9px 12px;
+  font-size: 12px; color: var(--tx2); line-height: 1.7;
+  background: var(--bg2); border-left: 2px solid var(--line2);
+  border-radius: 0 6px 6px 0;
+}
+.genmsg-go {
+  display: inline-block; margin-left: 8px;
+  color: var(--act); text-decoration: none; font-weight: 650;
+}
+.genmsg-go:hover { text-decoration: underline; }
+
+/* 这一讲的题是存下来的：这一行说明「有多少、做完几道、对几道」，
+   也是「切走再回来还在」的凭据 —— 没有它，人只看见一个出题按钮，
+   刚才那批题去哪了无从知道。 */
+.lzbar-mn {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin-top: 10px;
+  font-size: 12px; color: var(--tx3);
+}
+.lzbar-mn b { color: var(--tx); font-weight: 750; font-variant-numeric: tabular-nums; }
+.lzbar-mn i { font-style: normal; font-size: 11.5px; color: var(--tx3); }
+/* 之前做过的题挂个小标：不假装是刚答的，也不让已经做过的题再算一遍 */
+.inzq .iztag {
+  flex: none; align-self: flex-start;
+  font-style: normal; font-size: 10.5px; font-weight: 650;
+  padding: 1px 7px; border-radius: 999px;
+  background: var(--card2); border: 1px solid var(--line); color: var(--tx3);
+}
+
+/* 当堂测就地做题：一题一小块，出 5 道就排 5 道 —— 不翻页、不跳去别的页。
+   对错靠左边框与字母变色，不靠整块铺色：整块变红之后选项字就难读了。 */
+.inzq-mn { margin-top: 14px; }
+.inzq { padding: 12px 0; border-top: 1px solid var(--line); }
+.inzq .st { display: flex; gap: 8px; font-size: 13px; line-height: 1.65; color: var(--tx); }
+.inzq .st b {
+  flex: none; min-width: 18px; padding-top: 2px;
+  color: var(--tx3); font-family: var(--mono); font-size: 12px; font-weight: 500;
+}
+.inzq .ops { display: flex; flex-direction: column; gap: 5px; margin: 8px 0 0 26px; }
+.izop {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 10px; border-radius: 6px;
+  background: transparent; border: 1px solid var(--line);
+  color: var(--tx2); font: inherit; font-size: 12.5px; line-height: 1.55;
+  text-align: left; cursor: pointer;
+}
+.izop:hover:not(:disabled) { border-color: var(--line2); color: var(--tx); }
+.izop:disabled { cursor: default; }
+.izop i {
+  flex: none; width: 15px;
+  color: var(--tx3); font-family: var(--mono); font-style: normal; font-size: 11.5px;
+}
+.izop.on { border-color: var(--act); color: var(--tx); }
+.izop.ok { border-color: var(--ok); background: rgba(79, 196, 135, .09); color: var(--tx); }
+.izop.ok i { color: var(--ok); }
+.izop.bad { border-color: var(--bad); background: rgba(255, 107, 74, .09); color: var(--tx); }
+.izop.bad i { color: var(--bad); }
+.izfb { margin: 7px 0 0 26px; font-size: 12px; }
+.izfb.ok { color: var(--ok); }
+.izfb.bad { color: var(--bad); }
+.izsum {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--tx2);
+}
+/* 答错才给的那个「为什么错」。练习页那份印在米白纸上，这份在深色壳里，
+   所以排版另写 —— 四段、依据、命中与否的数据是同一个接口给的。 */
+.izex-btn {
+  margin-left: 10px; padding: 0 9px; height: 22px;
+  border-radius: 5px; background: transparent;
+  border: 1px solid var(--line2); color: var(--tx2);
+  font: inherit; font-size: 11.5px; cursor: pointer;
+}
+.izex-btn:hover:not(:disabled) { border-color: var(--act); color: var(--act); }
+.izex-btn:disabled { opacity: .55; cursor: progress; }
+.izex {
+  margin: 10px 0 0 26px; padding: 10px 12px;
+  background: var(--bg2);
+  border-left: 2px solid var(--line2);
+  border-radius: 0 8px 8px 0;
+}
+.izex-none { font-size: 12px; color: var(--tx3); line-height: 1.65; }
+.izex .hd { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; }
+.izex .hd b { font-size: 12.5px; color: var(--tx); font-weight: 650; }
+.izex .vd {
+  font-size: 11px; color: var(--tx3);
+  border: 1px solid var(--line2); border-radius: 4px; padding: 1px 6px;
+}
+.izex .vd.ok { color: var(--ok); border-color: rgba(79, 196, 135, .4); }
+.izex .md { margin-left: auto; font-size: 10.5px; color: var(--tx3); font-family: var(--mono); }
+.izex .pt + .pt { margin-top: 10px; padding-top: 9px; border-top: 1px solid var(--line); }
+.izex .tt { margin-bottom: 4px; font-size: 11.5px; color: var(--act); }
+.izex .tx { font-size: 12.5px; color: var(--tx); line-height: 1.75; }
+.izex .ln {
+  margin-top: 6px; padding-left: 9px;
+  border-left: 2px solid var(--line2);
+  font-size: 12px; color: var(--tx2); line-height: 1.7;
+}
+.izex .ln span { display: block; }
+.izex .ln i {
+  display: block; margin-top: 2px;
+  font-style: normal; font-size: 10.5px; color: var(--tx3);
+}
+.izex .ln.bad { border-left-color: var(--bad); }
+.izex .ln.bad i { color: var(--bad); }
+.izex .op {
+  display: flex; gap: 8px; margin-top: 4px;
+  font-size: 12px; color: var(--tx2); line-height: 1.65;
+}
+.izex .op b { flex: none; color: var(--tx3); font-family: var(--mono); }
+.izex .op i { font-style: normal; font-size: 11px; color: var(--tx3); }
+.izex .op.ok b { color: var(--ok); }
+.izex .op.bad b { color: var(--bad); }
+.izex .gap { margin-top: 8px; font-size: 11px; color: var(--tx3); }
+
+/* 考场页的「AI 组卷」一行：科目 + 题量 + 一个按钮，不做卡片 ——
+   它是这一页的一个动作，不是一件作品。 */
+.mkrow-mn {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 0 14px;
+}
+.mkrow-mn .mk-lb { font-size: 11.5px; color: var(--tx3); }
+.mkrow-mn select.inp-mn { width: auto; min-width: 96px; }
+.mkrow-mn .mk-msg { font-size: 11.5px; color: var(--tx3); line-height: 1.6; }
+
+/* ---------------- 全局：区间节奏 ----------------
+   设计稿没写的一条，但整页看下来必须补：
+   相邻两个「区」之间（KPI → 第一块内容 → 下一区）永远至少 16px，
+   而区内元素之间用 8~12px。之前每个组件自己带一个 margin，
+   叠在一起有的 16 有的 0，就成了「有的地方挤成一条，有的地方裂开」。 */
+.content > * + * { margin-top: 16px; }
+.content > .kpi-mn + * { margin-top: 18px; }
+.content > .sect-mn { margin-top: 22px; }
+.content > * + .sect-mn { margin-top: 22px; }
+
+/* 两栏里左右两张卡不等高时，右卡自动跟左卡一样高（但不拉伸内部内容），
+   避免「左边到底、右边半截」那种断口。 */
+.twocol-mn > .blkcard-mn { height: 100%; }
+.twocol-mn { align-items: stretch; }
+
+/* ---------- 纸里的「错题本」（练习页过渡） ----------
+   原来它单独一区挂在纸下面，纸只有四个选项时主栏空出一整片。
+   现在它变成纸里的第二块（像订在讲义下面的一页），
+   主栏不会再出现那种「上面窄窄一条、下面整屏黑」。 */
+.bookhd-mn {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--paperline);
+}
+.bookhd-mn b { font-size: 12.5px; font-weight: 750; color: var(--ptx); }
+.bookhd-mn span { font-size: 10.5px; color: var(--ptx3); }
+/* 窄栏里只有 258px：错题卡一列排，两列会把题干挤成竖条 */
+.spots-mn {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 7px;
+  margin-top: 10px;
+}
+.paper-mn .spots-mn { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.spot-mn {
+  background: var(--paper2);
+  border: 1px solid var(--paperline);
+  border-radius: 9px;
+  padding: 8px 11px 9px;
+  min-width: 0;
+}
+.spot-mn .sh b {
+  display: block;
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.55;
+  color: var(--ptx);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.spot-mn .sm {
+  display: flex;
+  gap: 9px;
+  margin-top: 5px;
+  font-size: 10.5px;
+  color: var(--ptx3);
+  font-variant-numeric: tabular-nums;
+}
+.spot-mn .sm span + span { border-left: 1px solid var(--paperline); padding-left: 9px; }
+
+/* 纸撑满格子高度（align-items:stretch 已经做了）。
+   不要再写 height:100% —— 那会让纸套着 min-height:420 的格子再叠一次，
+   实测撑到 895px，比整个内容区还高。 */
+
+/* 纸的身体：撑满纸剩下的高度，页脚自然沉到底部。
+   之前 children 直接是纸的子元素，纸被撑高后空白落在「页脚之上」——
+   页脚却因为前面的兄弟块不弹性而卡在中间。 */
+.paperbody-mn {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.paperbody-mn > * { flex: 0 0 auto; }
+
+/* ---------------- 练习 / 作文 / 考场这种「一纸」的页 ----------------
+   这里只做一件事：让 .content 照常滚。
+   之前的版本用 flex + calc 把整页硬塞进一屏，结果是 .content 的
+   scrollHeight 恒等于 clientHeight —— 屏幕上永远滚不动，
+   纸下半截的内容被压在可视区外面，怎么拉都看不到。
+   一屏放得下就一屏，放不下就该滚，这是内容决定的，不是版式决定的。 */
+.content:has(> .pagein > .pracgrid-mn) { padding-top: 16px; padding-bottom: 22px; }
+.content:has(> .pagein > .pracgrid-mn) > .pagein { display: block; }
+.content:has(> .pagein > .pracgrid-mn) > .pagein > .pracgrid-mn { margin-top: 16px; }
+
+/* 纸不再自己滚：整页一起滚，鼠标滚轮指着哪儿都在同一个滚动条上。
+   纸的高度由内容决定；格子用 stretch 让右边的窄栏跟纸同高。 */
+.content:has(> .pagein > .pracgrid-mn) .paper-mn {
+  overflow: visible;
+  max-height: none;
+}
+
+/* 一年一道的题目条（作文页）：13 道题排成一行会吃掉四行高度，
+   收成一行横滚，只露年份，谁也挤不着谁。这条横滚是有边界的 ——
+   它只横滚，不拦竖直方向，滚轮照样交给整页。 */
+.yrbar-mn {
+  flex: none;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scrollbar-width: thin;
+}
+.yrbar-mn::-webkit-scrollbar { height: 4px; }
+.yrbar-mn::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+.yrbar-mn > .schip-mn { flex: none; }
+
+/* 练习页控件行：科目 / 题型改成下拉，省掉整整一排 chips。
+   原来四个科目名（「计算机基础与程序设计」这种）横着铺满一行，
+   把真正要看的题纸一路压到折线以下 —— 横向空间该还给纸，不是给筛选器。 */
+.pktool-mn { align-items: center; margin-bottom: 12px; }
+.pksel { display: inline-flex; align-items: center; gap: 6px; }
+.pksel > span { font-size: 11.5px; color: var(--tx3); }
+.pksel select.inp-mn { width: auto; min-width: 116px; }
+.srcbar-empty { font-size: 12px; color: var(--tx3); line-height: 1.65; padding: 4px 2px; }
+.barsep-mn {
+  width: 1px;
+  height: 18px;
+  background: var(--line2);
+  margin: 0 4px;
+  align-self: center;
+}
+
+/* 作文页的纸里那块输入框给个像样的默认高度，剩下的交给内容 */
+.wedit { min-height: 300px; }
+
+/* ===================== 作文页：整宽一张纸 =====================
+   用户提过两次「纸右边空一块」。那不是留白，是照抄「主栏 + 258px 窄栏」的结果：
+   作文的输入框是横着长的，窄栏只会把人往回缩。这里改成一张宽纸，
+   批改结果接在纸下面 —— 一处都不留空。 */
+.wgrid-mn {
+  display: block;
+  margin-top: 0;
+  min-width: 0;
+}
+.wgrid-mn > .paper-mn {
+  max-width: none;
+  width: 100%;
+}
+/* 题目选择器那一行：贴着上边是因为它没有外边距。
+   上面留 16、下面留 14，滚到这一行时也能看清它的下边界。 */
+.pickrow-mn {
+  margin: 16px 0 14px;
+  padding-bottom: 6px;
+}
+
+/* ===================== 组卷：一页多题、并排两页 =====================
+   用户要的不是「一题一屏」，是「一张纸排好几道，题干和选项是一道、不拆」。
+   所以那一格不再是整页的纸，而是纸里的一段 .qcell-mn。 */
+.qhead-mn {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 18px 0 10px;
+}
+.qhead-mn .kick {
+  font-size: 10px;
+  letter-spacing: .2em;
+  font-weight: 800;
+  color: var(--tx3);
+}
+.qhead-mn .rt {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* 题号导航行：几百题的库，这一行就是「刷到哪了、后面还有没有」的唯一答案。
+   控件跟上面那排筛选下拉同款（同高 28–30、同圆角、同色），
+   不另造一套样式 —— 一排里出现两种按钮长相，就是用户说的「不一致」。 */
+.qnav-mn { align-items: center; flex-wrap: wrap; gap: 8px; }
+.qnav-mn .pos {
+  font-size: 12px;
+  color: var(--tx3);
+  font-variant-numeric: tabular-nums;
+}
+.qnav-mn .pos b { color: var(--tx); font-weight: 800; }
+.qnav-mn .pn-mn,
+.qnav-mn .jump-mn { display: inline-flex; align-items: center; gap: 6px; }
+/* 同一行里下拉和按钮必须一般高 —— 高 2px 的差别在并排时比颜色更扎眼。 */
+.qnav-mn button {
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--rp);
+  background: var(--card);
+  border: 1px solid var(--line);
+  color: var(--tx2);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.qnav-mn button:hover:not(:disabled) { border-color: var(--line2); color: var(--tx); }
+.qnav-mn button:disabled { opacity: .38; cursor: default; }
+.qnav-mn .jump-mn input.inp-mn {
+  width: 62px;
+  height: 30px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+/* 只有「每组多少题」这种短选项才允许收窄，外观其余部分不动 */
+.qnav-mn .pksel select.inp-mn { min-width: 0; }
+.pkgen-mn { display: inline-flex; gap: 6px; }
+.pkgen-mn .pbtn-mn { height: 30px; padding: 0 11px; font-size: 12px; }
+
+/* 并排的几张纸：中间不留空白，只有一道细线。
+   align-items 必须是 stretch（默认）：start 会让左右两页各排各的，
+   左边某道题判完把解析摊开、右边就悄悄错位，读的时候得重新找行。
+   等高之后两页的纸沿对齐，视线横着走不用回位。 */
+.qspread-mn {
+  display: grid;
+  gap: 14px;
+  align-items: stretch;
+  min-width: 0;
+}
+.qspread-mn > .leaf-mn { min-width: 0; }
+.qspread-mn .paper-mn { max-width: none; }
+
+/* 一道题 = 题干 + 选项（+ 判完的解析 + 就地展开的讲题） */
+.qcell-mn {
+  padding: 12px 0 14px;
+  min-width: 0;
+}
+.qcell-mn + .qcell-mn {
+  border-top: 1px solid var(--paperline);
+}
+.qcell-mn:first-of-type { padding-top: 14px; }
+
+.qh {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.qh .qn {
+  flex: none;
+  min-width: 19px;
+  height: 19px;
+  padding: 0 5px;
+  border-radius: 6px;
+  background: var(--paper3);
+  color: var(--ptx2);
+  font-size: 10.5px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  font-variant-numeric: tabular-nums;
+}
+.qcell-mn.done .qh .qn { background: #E2D7BF; color: var(--ptx); }
+.qh .qp {
+  font-size: 10.5px;
+  color: var(--ptx3);
+  letter-spacing: .04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 40%;
+}
+.qh .qk {
+  font-size: 10px;
+  color: var(--ptx3);
+  opacity: .85;
+}
+.qh .qj {
+  font-size: 10.5px;
+  font-weight: 800;
+  padding: 2px 7px;
+  border-radius: var(--rp);
+  background: #E9F5EC;
+  color: #1E7145;
+}
+.qh .qj.no { background: #FDF0EC; color: #A6371A; }
+.qh .qlink {
+  margin-left: auto;
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 7px;
+  border: 1px solid var(--paperline);
+  background: transparent;
+  color: var(--ptx3);
+  font-size: 10.5px;
+  font-weight: 650;
+  cursor: pointer;
+}
+.qh .qlink:hover:not([disabled]) { border-color: #C9B58A; color: var(--ptx); }
+.qh .qlink[disabled] { opacity: .55; cursor: default; }
+
+/* 一页多题时题干小一号：16.5px 是「一道题占一屏」的排法，排五道就挤了 */
+.paper-mn .stem-mn.q { margin-top: 7px; font-size: 14px; line-height: 1.7; }
+.paper-mn .opts-mn.q { margin-top: 8px; gap: 6px; }
+.paper-mn .opt-mn { padding: 7px 11px; font-size: 13px; }
+.paper-mn .opt-mn .l { width: 17px; height: 17px; font-size: 10px; }
+
+.qfb-mn {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: flex-start;
+}
+.qfb-mn .tx { font-size: 12px; line-height: 1.75; color: var(--ptx2); }
+.qfb-mn .tx.dim { color: var(--ptx3); }
+.tagrow-mn {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* 就地展开的讲题：比整页版收一点，别把下一道题顶出纸外 */
+.qcell-mn .exp-mn { margin-top: 10px; padding-top: 10px; }
+.qcell-mn .expart-mn { margin-top: 9px; gap: 10px; }
+.qcell-mn .expart-mn .ix { width: 38px; font-size: 9.5px; }
+.qcell-mn .expart-mn .tx { font-size: 12px; line-height: 1.75; }
+.qcell-mn .quote-mn { font-size: 11.5px; padding: 7px 10px; }
+.qcell-mn .optjudge-mn { grid-template-columns: 1fr; }
+
+/* 影院模式：整页铺满，只留播放器。（这一段必须住在 v6.css ——
+   同一份选择器权重下后加载的才生效；.cls2.toc-shut 在 ui.css 里，
+   app.css 比它早加载，写在那儿会被盖掉。）
+   不用浏览器原生全屏 —— 原生全屏里 keydown 不再进页面，S 键截帧会失效，
+   而放大看的时候恰恰最想截。这里改成「页面内铺满」：Esc 退出，S 照旧。
+   注意要盖住 .content 的 padding（app.css 里那套 :has 规则只管 .chat/.cvwrap）。 */
+.cls2.theater {
+  position:fixed; inset:0; z-index:60;
+  grid-template-columns:minmax(0,1fr);
+  gap:0; padding:0; margin:0;
+  background:#070604; align-items:stretch;
+}
+.cls2.theater > .cls2-toc { display:none; }
+.cls2.theater > .cls2-side { display:none; }
+.cls2.theater > .cls2-stage { max-width:none; width:100%; height:100%; overflow:auto; padding:14px 18px 16px; }
+.cls2.theater .cls2-screen { max-height:calc(100vh - 150px); }
+.cls2.theater .vtheater { opacity:1; }

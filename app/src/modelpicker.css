@@ -1,0 +1,75 @@
+/* 输入框旁边的模型选择器。
+   放在 composer/gbar 里跟「图片 / 文件」同一排 —— agent 软件的习惯位置。
+   弹层往上开（.mp-pop{bottom:calc(100% + 8px)}），因为输入框本身就贴底了。 */
+
+.mp{position:relative;flex:none}
+.mp-btn{display:flex;align-items:center;gap:6px;height:28px;padding:0 8px;border-radius:var(--rp);
+  background:var(--card2);border:1px solid var(--line);color:var(--tx2);font-size:11.5px;cursor:pointer;
+  white-space:nowrap;max-width:220px;transition:border-color .15s var(--ease),color .15s var(--ease)}
+.mp-btn:hover:not(:disabled){border-color:var(--line2);color:var(--tx)}
+.mp-btn:disabled{opacity:.55;cursor:default}
+.mp-dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--ok);box-shadow:0 0 0 3px rgba(95,203,138,.15)}
+.mp-btn.off .mp-dot{background:var(--bad);box-shadow:0 0 0 3px rgba(255,107,74,.14)}
+.mp-name{overflow:hidden;text-overflow:ellipsis;font-family:ui-monospace,Consolas,monospace;font-size:11px}
+
+.mp-pop{position:absolute;left:0;bottom:calc(100% + 8px);z-index:90;width:352px;
+  background:var(--card);border:1px solid var(--line2);border-radius:var(--r3);
+  box-shadow:0 -8px 40px -12px rgba(0,0,0,.8),0 20px 50px -18px rgba(0,0,0,.85);
+  padding:11px;animation:pageIn .14s var(--ease)}
+.mp-hd{display:flex;flex-direction:column;gap:3px;padding:1px 3px 9px;border-bottom:1px solid var(--line)}
+.mp-hd b{font-size:13px}
+.mp-hd span{font-size:11.5px;color:var(--tx3)}
+/* 手动重新拉目录：目录是会变的（平台上下架模型），人不该等它自己失效才发现 */
+.mp-hd-t{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mp-rf{display:flex;align-items:center;gap:4px;border:1px solid var(--line);background:transparent;
+  color:var(--tx2);font-size:11.5px;padding:2px 7px;border-radius:6px;cursor:pointer;
+  transition:.14s var(--ease);flex:none}
+.mp-rf:hover:not(:disabled){border-color:var(--act);color:var(--act)}
+.mp-rf:disabled{opacity:.55;cursor:default}
+.mp-rf .spin{animation:mpspin .9s linear infinite}
+@keyframes mpspin{to{transform:rotate(360deg)}}
+.mp-sch{display:flex;align-items:center;gap:7px;margin:9px 0;padding:0 9px;height:32px;
+  background:var(--card2);border:1px solid var(--line);border-radius:var(--r2);color:var(--tx3)}
+.mp-sch:focus-within{border-color:var(--act);color:var(--tx2)}
+.mp-sch input{flex:1;min-width:0;background:none;border:none;outline:none;color:var(--tx);font-size:12.5px}
+.mp-sch input::placeholder{color:var(--tx3)}
+.mp-x{background:none;border:none;color:var(--tx3);cursor:pointer;font-size:15px;line-height:1;padding:0 2px}
+.mp-x:hover{color:var(--tx)}
+
+.mp-list{display:flex;flex-direction:column;gap:2px;max-height:min(46vh,340px);overflow-y:auto;margin:0 -3px;padding:0 3px}
+.mp-it{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:7px 9px;border-radius:var(--r2);
+  background:transparent;border:1px solid transparent;cursor:pointer;color:var(--tx)}
+.mp-it:hover:not(:disabled){background:var(--card2);border-color:var(--line)}
+.mp-it:disabled{cursor:default}
+.mp-it.on{background:var(--card2);border-color:var(--line2)}
+.mp-it-n{font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.mp-it-m{font-size:10.5px;color:var(--tx3);font-family:ui-monospace,Consolas,monospace;
+  margin-left:auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:132px}
+.mp-it-c{font-size:10px;color:var(--tx3);background:var(--card3);border-radius:5px;padding:1px 5px;flex:none}
+.mp-it-on{font-size:10.5px;color:var(--act);flex:none;font-weight:600}
+.mp-empty{padding:14px 10px;font-size:12px;color:var(--tx3);line-height:1.6}
+/* 「一家都没配」那句话旁边的真入口：点了直接跳设置页 */
+.mp-go{
+  margin-left:6px;padding:3px 9px;border-radius:7px;font-size:11.5px;font-weight:650;
+  background:var(--card2);border:1px solid var(--line);color:var(--act);cursor:pointer;
+  font-family:inherit;
+}
+.mp-go:hover{border-color:var(--act)}
+.mp-ft{margin-top:9px;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--tx3);line-height:1.6}
+
+
+
+/* 输入框那排里的竖分隔，隔开「换模型」和「贴图/挂文件」两组 */
+.gsep{width:1px;height:16px;background:var(--line2);flex:none;margin:0 2px}
+
+/* 平台分组：组头写平台名 + 账号 + 这一家列出来几个。
+   为什么分组而不是平铺：两家目录里同名模型不少（DeepSeek-V4-Flash 两家都有），
+   不写清是哪家的，选错了都不知道。 */
+.mp-grp{display:flex;flex-direction:column;gap:1px;margin-bottom:6px}
+.mp-gh{display:flex;align-items:center;gap:7px;padding:6px 9px 5px;position:sticky;top:0;z-index:1;
+  background:var(--card);border-bottom:1px solid var(--line)}
+.mp-gh b{font-size:11.5px;color:var(--tx2);font-weight:700;letter-spacing:.02em}
+.mp-ga{font-size:10.5px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:120px}
+.mp-gn{margin-left:auto;font-size:10.5px;color:var(--tx3);font-family:ui-monospace,Consolas,monospace;flex:none}
+.mp-empty.sm{padding:6px 10px 8px;font-size:11.5px}
+.mp-list{padding-top:0}

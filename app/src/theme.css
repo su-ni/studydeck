@@ -1,0 +1,154 @@
+/* ============================================================
+   配色 v6「壳与纸」（数值取自 docs/design-v6.html:8-22，改色前先看那一稿）
+   壳 = 深炭（导航 / 按钮 / 数字）；纸 = 米白（题干 / 选项 / 讲解 / 范文）。
+   一色一职：琥珀只给「现在该点的」和「当前所在」，绿红只给判分，
+   --cs/--en/--math/--pol 四色只给科目身份。
+   --rail / --r1..--r4 是老变量，画布等还在读，别删。
+   ============================================================ */
+:root {
+  --bg: #0F0D0A;
+  --bg2: #14110C;
+  --rail: #14110C;
+  --card: #1B1812;
+  --card2: #232019;
+  --card3: #2C2820;
+  --line: #2A251D;
+  --line2: #3D372C;
+  --tx: #FBF7EF;
+  --tx2: #C2B8A4;
+  --tx3: #8C8270;
+
+  /* 纸
+     原来是 #F7F2E7 —— 在纯黑的壳里太亮，读两屏眼睛就累。
+     现在整体压暗一档、往暖黄挪：纸还是纸，但不再是屏幕里的一块灯。 */
+  --paper: #EFE7D6;
+  --paper2: #E7DDC9;
+  --paper3: #DBD0B8;
+  --paperline: #CFC3A8;
+  --ptx: #221D14;
+  --ptx2: #57503F;
+  --ptx3: #8B806A;
+
+  --act: #FFB020;
+  --act2: #FFC55C;
+  --onact: #1A1000;
+  --ok: #4FC487;
+  --bad: #FF6B4A;
+  --warn: #FFC042;
+  --info: #7FB0F0;
+
+  /* 科目身份色 */
+  --cs: #FF7A4D;
+  --en: #4FC4C0;
+  --math: #7FA8F0;
+  --pol: #E0B84A;
+
+  --r: 14px;
+  --r1: 10px;
+  --r2: 14px;
+  --r3: 20px;
+  --r4: 26px;
+  --rp: 999px;
+  --ease: cubic-bezier(.22, .61, .36, 1);
+  --f: "Inter", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+  --mono: ui-monospace, "SFMono-Regular", "Cascadia Mono", Consolas, monospace;
+}
+
+/* 画布保持深色专业风（用户决策：不跟随主界面变浅）—— 画布内部一律读这套变量，
+   不要直接读 --bg/--card。 */
+.cvdark {
+  --cvbg: #0E1013;
+  --cvgrid: #22262D;
+  --cvpanel: #101217;
+  --cvpanel2: #171A20;
+  --cvline: #272B33;
+  --cvnode: #171A20;
+  --cvnodeline: #272B33;
+  --cvtx: #F6F7F8;
+  --cvtx2: #ADB4BD;
+  --cvroot: #FF6B1F;
+  --cvroottx: #140700;
+  --cvedge: #3A3F49;
+}
+.cvdark.paper {
+  --cvbg: #F7F5F0;
+  --cvgrid: #D8D2C4;
+  --cvpanel: #EFEBE2;
+  --cvpanel2: #E4DFD3;
+  --cvline: #D8D2C4;
+  --cvnode: #FFFFFF;
+  --cvnodeline: #D8D2C4;
+  --cvtx: #2B2721;
+  --cvtx2: #6B6357;
+  --cvroot: #D97706;
+  --cvroottx: #FFF8F0;
+  --cvedge: #B8AE9B;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--tx);
+  font-family: var(--f);
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+button, input, textarea, select { font-family: inherit; font-size: inherit; color: inherit; }
+
+/* ---------------------------------------------------------------- 滚动条
+   系统默认那根灰白条跟暖炭底不搭，这里换一套：细轨、透明底、滑块用卡片色，
+   指针悬上去才转主色 —— 平时不抢视线，要拖的时候抓得住。 */
+:root {
+  --sb-w: 10px;
+  --sb-track: transparent;
+  --sb-thumb: var(--card3);
+  --sb-thumb-line: var(--line2);
+  --sb-thumb-hot: var(--act);
+  --sb-thumb-hot-line: var(--act2);
+}
+
+/* Firefox / 标准 */
+* { scrollbar-width: thin; scrollbar-color: var(--sb-thumb) var(--sb-track); }
+
+/* WebKit / Blink */
+::-webkit-scrollbar { width: var(--sb-w); height: var(--sb-w); }
+::-webkit-scrollbar-track { background: var(--sb-track); }
+::-webkit-scrollbar-corner { background: var(--sb-track); }
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;          /* 留出内边距，视觉上更细 */
+  background-clip: content-box;
+  border-radius: var(--rp);
+  box-shadow: inset 0 0 0 1px var(--sb-thumb-line);
+  transition: background-color .16s var(--ease), box-shadow .16s var(--ease);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-thumb-hot);
+  background-clip: content-box;
+  box-shadow: inset 0 0 0 1px var(--sb-thumb-hot-line);
+}
+::-webkit-scrollbar-thumb:active { background: var(--act2); background-clip: content-box; }
+
+/* 侧栏：底更深，轨道要更隐一点 */
+.rail-in::-webkit-scrollbar-thumb,
+.toc-scroll::-webkit-scrollbar-thumb,
+.vq-scroll::-webkit-scrollbar-thumb { background: var(--line); background-clip: content-box; }
+.rail-in::-webkit-scrollbar-thumb:hover,
+.toc-scroll::-webkit-scrollbar-thumb:hover,
+.vq-scroll::-webkit-scrollbar-thumb:hover { background: var(--act); background-clip: content-box; }
+
+/* 画布（深色）单独一套，不跟随主界面变浅 */
+.cvdark { scrollbar-width: thin; scrollbar-color: #2C3037 transparent; }
+.cvdark ::-webkit-scrollbar-thumb { background: #2C3037; background-clip: content-box; box-shadow: inset 0 0 0 1px #3A3F49; }
+.cvdark ::-webkit-scrollbar-thumb:hover { background: var(--cvroot); background-clip: content-box; box-shadow: inset 0 0 0 1px var(--cvroot); }
+a { color: inherit; text-decoration: none; }
+
+/* 页面切换动效（主界面）。画布内部自己一套，不冲突。 */
+@keyframes pageIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.pagein { animation: pageIn .22s var(--ease); }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; transition-duration: .01ms !important; }
+}

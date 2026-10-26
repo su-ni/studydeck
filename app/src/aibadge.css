@@ -1,0 +1,40 @@
+/* 顶栏模型徽标：现在是谁在回答，一眼看到，随手能换 */
+.aib{position:relative}
+/* white-space:nowrap 是必须的：家名和模型名都带字母，换行会让 30px 的徽标撑成两行、
+   顶栏高度跟着跳。名字太长就省略，title 里能看全。 */
+.aib-btn{display:flex;align-items:center;gap:7px;height:30px;padding:0 9px;border-radius:var(--rp);
+  background:var(--card2);border:1px solid var(--line);color:var(--tx2);font-size:12px;cursor:pointer;
+  white-space:nowrap;max-width:260px;overflow:hidden;
+  transition:border-color .15s var(--ease),color .15s var(--ease)}
+.aib-btn b,.aib-btn em{min-width:0;overflow:hidden;text-overflow:ellipsis}
+.aib-btn:hover{border-color:var(--line2);color:var(--tx)}
+.aib-btn.on{border-color:var(--act);color:var(--tx)}
+.aib-btn b{font-weight:600;font-size:12px}
+.aib-btn em{font-style:normal;font-size:11px;color:var(--tx3);font-family:ui-monospace,Consolas,monospace}
+.aib-btn .ic{opacity:.55}
+.aib-dot{width:6px;height:6px;border-radius:50%;flex:none;background:var(--tx3)}
+.aib-btn.ok .aib-dot{background:var(--ok);box-shadow:0 0 0 3px rgba(95,203,138,.16)}
+.aib-btn.off .aib-dot{background:var(--bad);box-shadow:0 0 0 3px rgba(255,107,74,.14)}
+
+.aib-pop{position:absolute;right:0;top:38px;z-index:80;width:326px;background:var(--card);
+  border:1px solid var(--line2);border-radius:var(--r3);box-shadow:0 20px 50px -18px rgba(0,0,0,.85);
+  padding:12px;animation:pageIn .14s var(--ease)}
+.aib-hd{display:flex;flex-direction:column;gap:3px;padding:2px 4px 10px;border-bottom:1px solid var(--line);margin-bottom:8px}
+.aib-hd b{font-size:13px}
+.aib-hd span{font-size:11.5px;color:var(--tx3)}
+.aib-row{display:flex;align-items:center;gap:9px;width:100%;text-align:left;padding:8px 9px;border-radius:var(--r2);
+  background:transparent;border:1px solid transparent;cursor:pointer;color:var(--tx)}
+.aib-row:hover:not(:disabled){background:var(--card2);border-color:var(--line)}
+.aib-row:disabled{cursor:default}
+.aib-row.on{background:var(--card2);border-color:var(--line2)}
+.aib-d{width:7px;height:7px;border-radius:50%;flex:none;background:var(--tx3)}
+.aib-d.ok{background:var(--ok)}
+.aib-d.w{background:var(--warn)}
+.aib-tx{display:flex;flex-direction:column;gap:2px;min-width:0;flex:1}
+.aib-tx b{font-size:12.5px;font-weight:600}
+.aib-tx span{font-size:11px;color:var(--tx3);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.aib-tx em{font-style:normal;font-size:10.5px;color:var(--tx3);font-family:ui-monospace,Consolas,monospace}
+.aib-go{font-size:11.5px;color:var(--act);flex:none}
+.aib-empty{padding:12px 6px;font-size:12px;color:var(--tx3);text-align:center}
+.aib-msg{margin-top:8px;font-size:11.5px;color:var(--act);padding:0 4px}
+.aib-ft{margin-top:8px;padding-top:9px;border-top:1px solid var(--line);font-size:11px;color:var(--tx3);line-height:1.55}
