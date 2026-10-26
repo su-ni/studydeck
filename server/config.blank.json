@@ -1,0 +1,18 @@
+{
+ "APP_DATA_DIR": "F:/项目/备考专升本/研学台/data-blank",
+ "SOURCE_DATA_DIR": "F:/项目/备考专升本/研学台/data-blank",
+ "PROTO_DATA": "F:/项目/备考专升本/研学台/data-blank/proto_data.json",
+ "PROGRESS_JSON": "F:/项目/备考专升本/研学台/data-blank/progress.json",
+ "EXAM_PAPERS": "F:/项目/备考专升本/研学台/data-blank/exam_papers.json",
+ "POINT_CARDS": "F:/项目/备考专升本/研学台/data-blank/point_cards.json",
+ "WRITING_BANK": "F:/项目/备考专升本/研学台/data-blank/writing_bank.json",
+ "IMPORTED_SOURCES": "F:/项目/备考专升本/研学台/data-blank/sources.json",
+ "DB_PATH": "F:/项目/备考专升本/研学台/data-blank/study.db",
+ "BACKUP_DIR": "F:/项目/备考专升本/研学台/data-blank/backup",
+ "SYNC_ENABLED": false,
+ "SYNC_DIR": "F:/项目/备考专升本/研学台/data-blank/sync",
+ "PORT": 8771,
+ "ENABLE_LLM": true,
+ "ENABLE_BCZ": true,
+ "BCZ_ACCESS_TOKEN": "RGOgSbz9nNeasOToGPdE7P0Io0W4uOyJ3sPBrv7tPtI="
+}
