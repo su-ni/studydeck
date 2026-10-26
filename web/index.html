@@ -1,0 +1,894 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>研学台 · StudyDeck</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- ========== 图标（全部内联 SVG，无 emoji） ========== -->
+<svg style="display:none" aria-hidden="true">
+  <symbol id="i-home" viewBox="0 0 24 24"><path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-4v-6H9v6H5a1 1 0 0 1-1-1z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5.5v13l11-6.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-grid" viewBox="0 0 24 24"><rect x="3.5" y="3.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="3.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="3.5" y="13.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="15.5" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M3.5 9.8h17M8.5 3.2v3.6M15.5 3.2v3.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-card" viewBox="0 0 24 24"><rect x="3" y="4.5" width="18" height="15" rx="2.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M7.5 9.5h9M7.5 14h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-target" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="m8.5 12.2 2.4 2.4 4.6-4.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.4" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 7.4V12l3.1 2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 20V10M9.3 20V4.5M14.7 20v-6.5M20 20V8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-spark" viewBox="0 0 24 24"><path d="M12 3.2 13.9 9 19.6 11l-5.7 2L12 18.8 10.1 13 4.4 11l5.7-2z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M18.6 16.6l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7z" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m20 20-3.4-3.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-cv" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13M12.5 6l6 6-6 6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M4 6.5h16M4 12h16M4 17.5h10" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+  <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 15v5h-5M20 9V4h-5M4 15v5h5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M11 5.5 6 9H3v6h3l5 3.5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M15.4 9a4 4 0 0 1 0 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-file" viewBox="0 0 24 24"><path d="M6 3.5h7l5 5V20a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4.5a1 1 0 0 1 1-1z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M13 3.5v5h5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+  <symbol id="i-note" viewBox="0 0 24 24"><path d="M5 4.5h14v15H5z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M8.5 9h7M8.5 12.5h7M8.5 16h4" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></symbol>
+  <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.6-5.9" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M20 4v4.5h-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-timer" viewBox="0 0 24 24"><circle cx="12" cy="13" r="7.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 9.5V13l2.6 1.7M9.5 3.2h5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 3.4v2.2M12 18.4v2.2M4.6 12H2.4M21.6 12h-2.2M6.8 6.8 5.2 5.2M18.8 18.8l-1.6-1.6M17.2 6.8l1.6-1.6M5.2 18.8l1.6-1.6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-x" viewBox="0 0 24 24"><path d="M7 7l10 10M17 7 7 17" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="m6 12.5 4 4 8-9" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-star" viewBox="0 0 24 24"><path d="m12 4 2.5 5.2 5.5.8-4 3.9.95 5.6L12 16.8 7.05 19.5 8 13.9 4 10l5.5-.8z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-minus" viewBox="0 0 24 24"><path d="M5 12h14" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+  <symbol id="i-fit" viewBox="0 0 24 24"><path d="M9 4H4v5M15 4h5v5M15 20h5v-5M9 20H4v-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-tree" viewBox="0 0 24 24"><path d="M4 5h5v4H4zM15 3h5v4h-5zM15 17h5v4h-5z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 7h2.5v11H15M11.5 9.5V5H15" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+  <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M15 4.5v15" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-md" viewBox="0 0 24 24"><path d="M3.5 5.5h17v13h-17z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M6.6 15.4V9l2.6 3.4L11.8 9v6.4M15 9v4.2M13.4 11.8 15 13.4l1.6-1.6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-dl" viewBox="0 0 24 24"><path d="M12 4v10.5M7.8 10.6 12 14.8l4.2-4.2M5 19h14" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-shape" viewBox="0 0 24 24"><path d="M4 6h7v5H4zM13 13h7v5h-7zM11 8.5h2M13 15.5h-2M12 8.5v7" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+  <symbol id="i-palette" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.7-.7 1.7-1.6 0-.9-.7-1.4-.7-2.2 0-.8.7-1.4 1.6-1.4H16a5 5 0 0 0 5-5c0-4.4-4-7.8-9-7.8z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8.5" cy="10" r="1.1" fill="currentColor"/><circle cx="12" cy="7.6" r="1.1" fill="currentColor"/><circle cx="15.6" cy="10" r="1.1" fill="currentColor"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 13a4 4 0 0 0 5.7 0l2.6-2.6a4 4 0 0 0-5.7-5.7L11.4 6" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/><path d="M14 11a4 4 0 0 0-5.7 0l-2.6 2.6a4 4 0 0 0 5.7 5.7L12.6 18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+  <symbol id="i-frame" viewBox="0 0 24 24"><path d="M3 8V4h4M21 8V4h-4M3 16v4h4M21 16v4h-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><rect x="7" y="8" width="10" height="8" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2.6 2"/></symbol>
+  <symbol id="i-mflag" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M5 21V4"/><path d="M5 5h11l-2 4 2 4H5"/></symbol>
+<symbol id="i-mstar" viewBox="0 0 24 24" fill="currentColor">
+  <path d="M12 3.2l2.6 5.6 6.1.8-4.5 4.2 1.2 6-5.4-3-5.4 3 1.2-6L3.3 9.6l6.1-.8z"/></symbol>
+<symbol id="i-mq" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M9 9.5a3 3 0 114.4 2.7c-.9.5-1.4 1.2-1.4 2.3v.5"/><path d="M12 18.5h.01"/></symbol>
+<symbol id="i-midea" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 3.5a5.5 5.5 0 00-3 10.1V17h6v-3.4a5.5 5.5 0 00-3-10.1z"/>
+  <path d="M9.5 20h5"/></symbol>
+<symbol id="i-mdone" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M4.5 12.5l5 5 10-11"/></symbol>
+<symbol id="i-mwarn" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+  stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+  <path d="M12 4v10"/><path d="M12 18.5h.01"/></symbol>
+<symbol id="i-keys" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="2" y="6" width="20" height="12" rx="2.5"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/></symbol>
+  <symbol id="i-node" viewBox="0 0 24 24"><rect x="3" y="9" width="7" height="6" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M10 12h4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="4" width="7" height="5" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="14" y="15" width="7" height="5" rx="1.4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M14 6.5h-1.5v11H14" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 24 24"><path d="M4 9h10a5 5 0 0 1 0 10h-3M4 9l4-4M4 9l4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-redo" viewBox="0 0 24 24"><path d="M20 9H10a5 5 0 0 0 0 10h3M20 9l-4-4M20 9l-4 4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-cam" viewBox="0 0 24 24"><path d="M4 8.5h3l1.4-2h7.2L17 8.5h3v10H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.2" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+  <symbol id="i-gal" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 9h17M9 4.5v15" fill="none" stroke="currentColor" stroke-width="1.4"/></symbol>
+  <symbol id="i-img" viewBox="0 0 24 24"><rect x="3.5" y="5" width="17" height="14" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="8.8" cy="9.8" r="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4.5 17l4.6-4.6 3.2 3.2 2.4-2.4 4.8 4.8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+<symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20l1-4.2L16.2 4.6a2 2 0 0 1 2.8 0l1.4 1.4a2 2 0 0 1 0 2.8L9.2 20z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="m14.6 6.4 3 3" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+</svg>
+
+<div class="app">
+
+  <!-- ================= 侧栏 ================= -->
+  <aside class="rail">
+    <div class="rail-scroll">
+      <div class="brand">
+        <span class="lg"><svg class="ic" style="width:20px;height:20px"><use href="#i-play"/></svg></span>
+        <div><b id="brandTitle">研学台</b><span id="brandSub">StudyDeck</span></div>
+      </div>
+      <nav class="nav" id="nav">
+        <button class="navitem on" data-p="today"><svg class="ic"><use href="#i-home"/></svg><span>今日</span></button>
+        <button class="navitem" data-p="classroom"><svg class="ic"><use href="#i-play"/></svg><span>课堂</span></button>
+        <button class="navitem" data-p="courses"><svg class="ic"><use href="#i-grid"/></svg><span>课程库</span><span class="cnt" id="cntCourses">889</span></button>
+        <button class="navitem" data-p="schedule"><svg class="ic"><use href="#i-cal"/></svg><span>课表</span><span class="cnt">本周</span></button>
+        <button class="navitem" data-p="vocab"><svg class="ic"><use href="#i-card"/></svg><span>背单词</span><span class="cnt" id="cntVocab">28/40</span></button>
+        <button class="navitem" data-p="practice"><svg class="ic"><use href="#i-target"/></svg><span>练习</span><span class="cnt">781 题</span></button>
+        <button class="navitem" data-p="exam"><svg class="ic"><use href="#i-clock"/></svg><span>考场</span><span class="cnt">15 套</span></button>
+        <button class="navitem" data-p="stats"><svg class="ic"><use href="#i-chart"/></svg><span>统计</span></button>
+        <button class="navitem" data-p="writing"><svg class="ic"><use href="#i-pen"/></svg><span>作文</span><span class="cnt" id="cntWriting">—</span></button>
+      </nav>
+    </div>
+    <div class="resume" id="resumeBox">
+      <span class="lbl">接着学</span>
+      <span class="t" id="resumeT">—</span>
+      <span class="m" id="resumeM">—</span>
+      <button class="btn act go" id="resumeGo" data-p="classroom">继续这一讲 <svg class="ic" style="width:15px;height:15px"><use href="#i-arrow"/></svg></button>
+    </div>
+    <div class="streak" id="streak" title="最近 7 天"></div>
+    <!-- 设置不是藏起来的东西：模型选哪家、题源导入、同步备份都在这一页。
+         原来这里只有一个灰字「工具台」，等于把设置藏在了开发入口里。 -->
+    <button class="devlink" id="navSet" data-p="agent" title="用哪家的模型、导入题源、备份与同步">
+      <svg class="ic" style="width:13px;height:13px;vertical-align:-2px;margin-right:5px"><use href="#i-gear"/></svg>设置与工具台
+    </button>
+    <div class="devlink" id="buildTag" title="前端版本号 · 刷新后若没变说明你打开的是缓存里的旧页面">build —</div>
+  </aside>
+
+  <!-- ================= 主区 ================= -->
+  <div class="main">
+    <header class="top">
+      <div class="ptitle">
+        <h2><span class="kick" id="pkick">今日</span><span class="pt" id="ptitle">今日</span></h2>
+        <p id="psub">—</p>
+      </div>
+      <div class="right">
+        <span class="sbox">
+          <svg class="ic" style="width:16px;height:16px"><use href="#i-search"/></svg>
+          <input id="searchIn" placeholder="搜索讲次 / 单词 / 考点 / 题干" autocomplete="off">
+          <button class="sgo" id="searchBtn" aria-label="搜索">搜</button>
+        </span>
+        <div class="card" id="searchPop" hidden></div>
+        <button class="btn sm" id="xmTop" title="连接 XMind 云端：登录后可拉你在平板上做的导图">
+          <svg class="ic" style="width:14px;height:14px"><use href="#i-spark"/></svg><span id="xmTopT">连 XMind</span>
+        </button>
+        <div class="tchip"><span class="dot act"></span>今日已投入 <b id="chipMin">0</b> 分钟</div>
+        <span class="avatar">码</span>
+      </div>
+    </header>
+
+    <div class="view" id="view">
+
+      <!-- ============ 1 今日 ============ -->
+      <section class="page on" id="p-today">
+        <!-- ===== AI 主导：这一块不是「另开一页」，它就是今日页的主体 =====
+             进门没有卡片时，这里就是全部内容；有卡片时它是一个可切换的模式。
+             侧栏永远在 —— 模型设置、工具审计都在侧栏里，藏掉就等于没有设置入口。 -->
+        <div class="modebar" id="modeBar">
+          <div class="mb-l">
+            <b>今日</b>
+            <span class="mb-s" id="mbSub">按你的一句话排，或者按卡片看</span>
+          </div>
+          <div class="mb-r">
+            <button class="mbt on" id="modeAi" data-mode="ai">AI 主导</button>
+            <button class="mbt" id="modeCards" data-mode="cards">卡片主导</button>
+          </div>
+        </div>
+
+        <div class="gate" id="aiGate" hidden>
+          <div class="gtop">
+            <span class="gkick" id="gKick">先听你说</span>
+          </div>
+
+          <h1 class="gtitle" id="gTitle">你想考什么？</h1>
+          <p class="gsub" id="gSub">说一句就行 —— 考什么、哪天考、每天能学多久。缺哪样它会问，不替你填。</p>
+
+          <div class="gbox" id="gBox">
+            <textarea id="gIn" rows="1" placeholder="例如：我要考专升本，2027 年 3 月 15 号，每天能学 2 小时"></textarea>
+            <div class="gfiles" id="gFiles" hidden></div>
+            <div class="gbar">
+              <button class="gico" id="gPic" title="贴一张图（本机没有视觉模型，只会记下文件名）">
+                <svg class="ic" style="width:17px;height:17px"><use href="#i-file"/></svg><span>图片</span>
+              </button>
+              <button class="gico" id="gDoc" title="挂一份文件（同样只记文件名）">
+                <svg class="ic" style="width:17px;height:17px"><use href="#i-note"/></svg><span>文件</span>
+              </button>
+              <span class="gspacer"></span>
+              <span class="ghint" id="gHint">Enter 发送 · Shift+Enter 换行</span>
+              <button class="gsend" id="gSend" aria-label="发送">
+                <svg class="ic" style="width:18px;height:18px"><use href="#i-arrow"/></svg>
+              </button>
+            </div>
+            <input type="file" id="gFilePick" accept="image/*" multiple hidden>
+            <input type="file" id="gDocPick" multiple hidden>
+          </div>
+
+          <div class="gtry" id="gTry">
+            <button class="chip" data-say="我要考专升本，2027年3月15号考，每天能学2小时">专升本 · 明年 3 月 · 每天 2h</button>
+            <button class="chip" data-say="我想考研，2027年12月20号，每天3小时">考研（本机没有，它该说实话）</button>
+            <button class="chip" data-say="我想考专升本">只说目标（它该回来问日期）</button>
+          </div>
+
+          <div class="pipe" id="gPipe" hidden></div>
+          <div class="gask" id="gAsk" hidden></div>
+          <div class="gcand" id="gCand" hidden></div>
+          <div class="gplan" id="gPlan" hidden></div>
+          <div class="gfoot" id="gFoot"></div>
+        </div>
+
+        <!-- 卡片那一套：有内容才显示。AI 模式下整块藏起来，不是删掉。 -->
+        <div id="cardSec">
+        <div class="hero" id="heroSec">
+          <div>
+            <span class="kick" id="heroKick"><b>10 月 16 日 · 周五</b> · 第 9 天</span>
+            <h1 class="display">接着上次，往下走</h1>
+            <p class="lead" id="heroLead">—</p>
+            <div class="acts">
+              <button class="btn act lg" data-p="classroom"><svg class="ic" style="width:16px;height:16px"><use href="#i-play"/></svg>继续上一讲</button>
+              <button class="btn lg" data-p="schedule">看本周课表</button>
+            </div>
+          </div>
+          <!-- 封面图不写死：src 由 paintHero 按当前科目自带封面填，没有就整块藏起来 -->
+          <div class="hero-art" hidden>
+            <img src="" alt="正在上的课">
+            <span class="tagtl bdg act">进行中</span>
+            <span class="cap" id="heroCap">—</span>
+          </div>
+        </div>
+
+        <!-- 快路：不联网，只用本机已有的课按这一句排。
+             和上面的「AI 主导」是同一个入口的两条腿，不是两个产品：
+             上面那条会出去搜课、逐条核对、再给你挑；这条不出门，问一句就排。 -->
+        <div class="sec">
+          <div class="card pad askbox" id="askBox">
+            <div class="askhd">
+              <h3>跳过找课，直接按这一句排</h3>
+              <span class="meta" id="askMeta">认得出「考什么 / 哪天考 / 每天多久」三样 · 认不齐它会问，不会替你填</span>
+            </div>
+            <div class="askrow">
+              <input id="askIn" type="text" autocomplete="off" placeholder="例如：2027-03-15 专升本，每天 2 小时" aria-label="用一句话说你的考试目标和每天能学多久">
+              <button class="btn act" id="askGo">说给它听</button>
+            </div>
+            <div class="asktry" id="askTry">
+              <button class="chip" data-say="2027-03-15 专升本，每天 2 小时">专升本 · 147 天 · 每天 2h</button>
+              <button class="chip" data-say="我想考研，2026-12-20 考，每天 3 小时">考研（它该顶回来）</button>
+              <button class="chip" data-say="我想专升本">只说目标（它该问日期）</button>
+            </div>
+            <div class="askout" id="askOut" hidden></div>
+            <div class="askrow" style="margin-top:12px">
+              <button class="btn ghost sm" id="askToAi" style="height:32px;padding:0 14px">让它出去找课，我来挑 →</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="sec"><div class="kpis" id="kpis"></div></div>
+
+        <div class="sec grid2">
+          <div>
+            <div class="sechd"><h3>今日编排</h3><span class="meta">按进度 + 到期复习生成 · 点一下就开始</span></div>
+            <div class="card"><div class="rows" id="todaylist"></div></div>
+          </div>
+          <div>
+            <div class="sechd"><h3>四科推进</h3><span class="meta">按分值排</span></div>
+            <div class="card"><div class="rows" id="subjprog"></div></div>
+            <div class="advice" style="margin-top:20px">
+              <span class="av"><svg class="ic" style="width:18px;height:18px"><use href="#i-spark"/></svg></span>
+              <div><b>守岸人建议</b><p id="adviceToday">—</p></div>
+            </div>
+          </div>
+        </div>
+        </div><!-- /cardSec -->
+      </section>
+
+      <!-- ============ 2 课堂 ============ -->
+      <section class="page" id="p-classroom">
+        <div class="pickbar">
+          <button class="sel" id="selSubject"><span class="dot en"></span><span id="selSubjectT">英语</span><svg class="ic cv" style="width:16px;height:16px"><use href="#i-cv"/></svg></button>
+          <button class="sel" id="selLesson"><span id="selLessonT">还没有讲次</span><svg class="ic cv" style="width:16px;height:16px"><use href="#i-cv"/></svg></button>
+          <button class="btn sm" id="tocBtn"><svg class="ic" style="width:15px;height:15px"><use href="#i-list"/></svg><span id="tocBtnT">收起目录</span></button>
+          <span class="bdg" style="height:30px" id="followBadge"><span class="dot ok"></span><span id="followT">跟随进度</span></span>
+          <span style="margin-left:auto"></span>
+          <button class="btn sm" id="fsBtn"><svg class="ic" style="width:15px;height:15px"><use href="#i-expand"/></svg>全屏</button>
+        </div>
+
+        <div class="card" id="clsMenu" hidden></div>
+
+        <div class="cls3" id="cls3">
+          <aside class="tocpane">
+            <div class="tocpane-hd">
+              <input class="tocsearch" id="tocSearch" placeholder="搜索本门课讲次…" autocomplete="off">
+            </div>
+            <div class="tocpane-list" id="tocList2"></div>
+            <div class="tocpane-ft">
+              <div class="pr">
+                <div class="bar"><i class="en" style="width:0%"></i></div>
+              </div>
+              <div class="r"><span id="tocProgT">已完成</span><b id="tocProg">—</b></div>
+            </div>
+          </aside>
+
+          <div class="studycol">
+            <div class="stage">
+              <div class="stage-hd">
+                <div class="t"><b id="clsTitle">—</b><span id="clsSub">—</span></div>
+                <span class="bdg" id="clsSrc" style="margin-left:auto">—</span>
+                <span class="bdg ok" id="clsFin" hidden style="height:26px">本讲已看完</span>
+                <button class="btn sm" id="clsDone" title="不等播完，直接标记本讲已看完">标记本讲看完</button>
+                <button class="btn sm" id="clsSync" hidden>写回进度文件</button>
+              </div>
+              <div class="screen" id="screen">
+                <!-- 封面由 mountPlayer 按当前科目填；没封面就不挂图，不拿别人的课程封面顶 -->
+                <img id="vposter" alt="课程画面" hidden>
+                <button class="ov" id="vplay" aria-label="播放">
+                  <i><svg class="ic" style="width:26px;height:26px"><use href="#i-play"/></svg></i>
+                </button>
+                <span class="bdg srcnote" id="vsrc">—</span>
+                <span class="times" id="vtimes">00:00 / 00:00</span>
+              </div>
+              <div class="pline">
+                <div class="barwrap">
+                  <div class="bar"><i style="width:0%"></i></div>
+                  <span class="mk pass" style="left:8%" title="已过"></span>
+                  <span class="mk" style="left:26%"></span>
+                  <span class="mk now" style="left:38%" title="当前"></span>
+                  <span class="mk" style="left:62%"></span>
+                  <span class="mk" style="left:80%"></span>
+                </div>
+                <div class="ph">
+                  <span>词锚点</span><span class="num" id="plineNow">00:00</span>
+                  <span class="sp">时间锚点＝本讲词群出现的时刻 · 点圆点看词卡，不打断播放</span>
+                </div>
+              </div>
+            </div>
+
+            <aside class="dock">
+              <div class="dtabs" id="dockTabs">
+                <button class="on" data-d="dw">词群</button>
+                <button data-d="dp">讲义</button>
+                <button data-d="dq">当堂测</button>
+                <button data-d="da">提问</button>
+              </div>
+              <div class="dpanel on" id="dw">
+                <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px">
+                  <span class="sub" id="dwhead">—</span>
+                  <button class="btn sm" id="dwAdd" style="margin-left:auto">把本讲词加进今天的复习</button>
+                </div>
+                <div class="dgrid" id="dwlist"></div>
+                <p class="sub" id="dwWhy" style="margin-top:14px"></p>
+              </div>
+              <div class="dpanel" id="dp">
+                <div style="display:flex;gap:26px;align-items:flex-start">
+                  <figure class="pagethumb"><img id="dpImg" src="img/desk.jpg" alt="讲义"></figure>
+                  <div style="flex:1;min-width:0">
+                    <div class="explain" style="margin-top:0"><div class="k" id="dpHead">讲义</div><p id="dpNote">—</p></div>
+                    <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap" id="dpLinks"></div>
+                  </div>
+                </div>
+              </div>
+              <div class="dpanel" id="dq">
+                <div style="display:flex;gap:26px;align-items:flex-start">
+                  <div class="explain" style="margin-top:0;flex:1"><div class="k" id="dqHead">当堂测</div><p id="dqNote">—</p>
+                    <div class="dqcovers" id="dqCovers"></div>
+                  </div>
+                  <div style="flex:none;width:260px">
+                    <button class="btn act block lg" id="dqStart">开始当堂测</button>
+                    <p class="sub" style="margin-top:10px" id="dqSub">—</p>
+                  </div>
+                </div>
+              </div>
+              <div class="dpanel" id="da">
+                <div style="display:flex;gap:26px;align-items:flex-start">
+                  <div style="flex:1">
+                    <textarea class="notearea" id="daArea" style="min-height:104px" placeholder="为什么这句的谓语是 is 而不是 are？"></textarea>
+                    <div class="explain reveal" id="daOut" style="margin-top:14px"><div class="k">回答</div><p id="daOutT">—</p></div>
+                  </div>
+                  <div style="flex:none;width:260px">
+                    <div class="explain" style="margin-top:0"><div class="k">问守岸人</div><p id="daHint">问题会带上当前讲次一起发出去。</p></div>
+                    <button class="btn block" style="margin-top:12px" id="daBtn">提问</button>
+                  </div>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 3 课程库 ============ -->
+      <section class="page" id="p-courses">
+        <div class="chips" id="courseCats"></div>
+        <div class="courses" id="courselist" style="margin-top:24px"></div>
+        <div class="sec">
+          <div class="sechd"><h3>本地资料</h3><span class="meta">实测体积</span></div>
+          <div class="card"><div class="rows" id="reslist"></div></div>
+        </div>
+      </section>
+
+      <!-- ============ 4 课表 ============ -->
+      <section class="page" id="p-schedule">
+        <div class="grid2b" style="align-items:start">
+          <div>
+            <div class="sechd"><h3>倒计时排程 · 未来七天</h3><span class="meta" id="schMeta">—</span></div>
+            <div class="card pad" id="schBudget" style="margin-bottom:16px"></div>
+            <div class="tl" id="schTl" hidden>
+              <div class="tl-head" id="schHead"></div>
+              <div class="tl-body">
+                <div class="gutter" id="schGutter"></div>
+                <div id="schDays" style="display:grid;grid-template-columns:repeat(7,minmax(0,1fr));grid-column:2 / span 7"></div>
+              </div>
+            </div>
+            <!-- 图例按真实科目生成：空白实例上不该还挂着「英语/高数/政治」这五个色块 -->
+            <div class="legend" id="schLegend">
+              <span style="color:var(--tx3)">块＝按考试日期和每天时长算出来的计划，不是随手画的</span>
+            </div>
+          </div>
+          <div>
+            <div class="sechd"><h3>这些不看 · 砍掉的依据</h3><span class="meta" id="cutMeta">—</span></div>
+            <div class="card"><div class="rows" id="cutlist" style="max-height:330px;overflow:auto"></div></div>
+            <div class="sechd" style="margin-top:20px"><h3>每科能吃到第几讲</h3><span class="meta">按分值权重切时间</span></div>
+            <div class="card"><div class="rows" id="reachlist"></div></div>
+            <div class="advice" style="margin-top:20px">
+              <span class="av"><svg class="ic" style="width:18px;height:18px"><use href="#i-spark"/></svg></span>
+              <div><b>排课逻辑</b><p id="schRule">—</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 5 背单词 ============ -->
+      <section class="page" id="p-vocab">
+        <div class="vx">
+          <!-- ===== 左栏：词表（可隐藏） ===== -->
+          <aside class="vx-list" id="vxList">
+            <div class="vx-list-hd">
+              <div class="vx-list-t"><b>本课词表</b><span id="wlistMeta">—</span></div>
+              <div class="vx-bar"><i id="duoProg"></i></div>
+            </div>
+            
+            <div class="vx-score">
+              <div><span>对</span><b id="sOk">0</b></div>
+              <div><span>错</span><b id="sNo">0</b></div>
+              <div><span>连对</span><b id="sBest">0</b></div>
+              <div><span>正确率</span><b id="sAcc">—</b></div>
+            </div><div class="vx-items" id="wordlistAll"></div>
+    
+          </aside>
+
+          <!-- ===== 中栏：答题 ===== -->
+          <main class="vx-quiz" id="duoMain">
+            <div class="vx-bar"><i></i></div>
+            <div class="planbar" id="planBar" hidden></div>
+            <header class="vx-top">
+              <button class="vx-ic" id="vxListToggle" title="显示 / 隐藏词表"><svg class="ic"><use href="#i-list"/></svg></button>
+              <span class="vx-unit" id="wmNow">—</span>
+              <span class="vx-goal" id="wGoal">—</span>
+              <span class="vx-sp"></span>
+              <button class="vx-ic" id="starBtn" title="生词本"><svg class="ic"><use href="#i-star"/></svg></button>
+               <button class="vx-ic" id="checkinBtn" title="打卡日历"><svg class="ic"><use href="#i-cal"/></svg></button>
+               <button class="vx-ic" id="favBtn" title="例句收藏"><svg class="ic"><use href="#i-star"/></svg></button>
+               <button class="vx-txt" id="reviewBtn" title="今天到期要复习的词">今日复习 <b id="dueN">-</b></button>
+               <button class="vx-ic" id="wrongBtn" title="错词本"><svg class="ic"><use href="#i-refresh"/></svg></button>
+              <button class="vx-txt" id="wmToggle">换词组</button>
+            </header>
+
+            <div class="vx-stage" id="duoBody"></div>
+
+            <div class="vx-fb" id="duoFb"><b id="duoFbT">—</b><span id="duoFbR"></span></div>
+            <div class="vx-act"><button class="vx-primary" id="duoBtn">下一题</button></div>
+            <div class="vx-modes" id="duoModes"></div>
+          </main>
+
+          <!-- ===== 右栏：本次战绩 ===== -->
+          <aside class="vx-stats">
+            <div class="vx-stats-hd"><b>本次战绩</b><span>SM-2</span></div>
+            <div class="vx-ring">
+              <svg viewBox="0 0 120 120" width="120" height="120">
+                <circle cx="60" cy="60" r="52" fill="none" stroke="var(--card2)" stroke-width="9"/>
+                <circle id="vxRing" cx="60" cy="60" r="52" fill="none" stroke="var(--act)" stroke-width="9"
+                        stroke-linecap="round" stroke-dasharray="326.7" stroke-dashoffset="326.7"
+                        transform="rotate(-90 60 60)"/>
+              </svg>
+              <div class="vx-ring-v"><b id="vxAcc">0%</b><span>正确率</span></div>
+            </div>
+            <div class="vx-kv"><span>答对</span><b id="vxRight">0</b></div>
+            <div class="vx-kv"><span>答错</span><b id="vxWrong">0</b></div>
+            <div class="vx-kv"><span>待重考</span><b id="vxRedo">0</b></div>
+            <div class="vx-kv"><span>本组</span><b id="vxTotal">—</b></div>
+          </aside>
+        </div>
+
+        <div class="vx-map" id="wmpanel" hidden>
+          <div class="vx-map-hd"><b>词表</b><span id="wmMeta">—</span></div>
+          <div class="vmap-body" id="vocabmap"></div>
+        </div>
+
+        <button class="vx-fab" id="vxFab"><svg class="ic"><use href="#i-list"/></svg>词表</button>
+      </section>
+
+      <!-- ============ 6 练习 ============ -->
+      <section class="page" id="p-practice">
+        <div class="sechd"><h3>刷题</h3><span class="meta" id="pracMeta">—</span></div>
+        <div class="srcbar" id="pracSrcs"></div>
+        <div class="srcbar srclist" id="pracSrcList"></div>
+        <!-- 导入题源：考研/考编/任何考试，题是别人的，科目名也是别人的 —— 不写死在代码里 -->
+        <details class="importer" id="impBox">
+          <summary>题源不在上面？把你自己的题库导进来（考研 / 考编 / 任何考试）</summary>
+          <div class="card pad" style="margin-top:12px">
+            <p class="sub">贴一份 JSON 清单就行，字段：<b>no</b> 题号、<b>stem</b> 题干、<b>opts</b> 选项、<b>ans</b> 答案、<b>explain</b> 解析（可缺）、<b>topic</b> 考点（可缺）。
+              导进来之后它就是一个正经题源：判分走同一套档位，错因回流到同一张表。</p>
+            <div class="improw">
+              <input class="inp" id="impId" placeholder="题源 id（英文短名，如 ky-math-2023）">
+              <input class="inp" id="impSub" placeholder="科目 id（如 kaoyan-math）">
+              <input class="inp" id="impSubName" placeholder="科目中文名（如 考研数学）">
+            </div>
+            <textarea class="inp" id="impJson" rows="7" placeholder='[{"no":1,"stem":"当 x→0 时 sin x / x 的极限是","opts":{"A":"0","B":"1","C":"∞","D":"不存在"},"ans":"B","explain":"重要极限","topic":"极限"}]'></textarea>
+            <div class="impacts">
+              <button class="btn act" id="impGo">导进来（写盘，要确认）</button>
+              <button class="btn sm" id="impSample">填个样例看看</button>
+              <span class="sub" id="impWhy"></span>
+            </div>
+          </div>
+        </details>
+        <div class="chips" id="pracParts" style="margin-bottom:20px"></div>
+        <div class="chips" style="margin-bottom:20px">
+          <button class="chip" id="wrongOnly">只看错题（本机答错过的题）</button>
+          <span class="sub" id="wrongOnlyMeta">答错过的题会列在这里，答对自动划掉</span>
+        </div>
+        <div class="grid2b">
+          <div>
+            <div class="q" id="pracQuiz">
+              <div class="qno"><span class="bdg" id="pracNo">—</span><span class="bdg" id="pracPart">—</span></div>
+              <div class="stem" id="pracStem">—</div>
+              <div class="opts" id="pracOpts"></div>
+              <div class="fillin" id="pracFill" hidden>
+                <input id="pracInput" type="text" autocomplete="off" spellcheck="false" placeholder="把答案敲进来，回车提交">
+                <button class="btn act" id="pracSubmit">提交</button>
+              </div>
+              <div class="tagbox" id="tagBox" hidden></div>
+              <div class="explain reveal" id="pracExp">
+                <div class="k">解析</div>
+                <p id="pracExpT">—</p>
+                <div class="exh" id="exHead" hidden>
+                  <span class="exv" id="exVerdict">—</span>
+                  <span class="exc" id="exConf">—</span>
+                  <span class="exm" id="exModel">—</span>
+                </div>
+                <div class="exparts" id="exParts" hidden></div>
+                <div class="exvotes" id="exVotes" hidden>
+                  <span class="sub">这一讲对不对？你说了算 ——</span>
+                  <button class="btn sm" id="exUp" data-v="up">讲得对</button>
+                  <button class="btn sm" id="exDown" data-v="down">讲错了</button>
+                </div>
+                <button class="btn sm" id="pracAi" style="margin-top:12px"><svg class="ic" style="width:14px;height:14px"><use href="#i-spark"/></svg>讲清这题（先找依据，再讲）</button>
+              </div>
+              <div style="display:flex;gap:12px;margin-top:22px">
+                <button class="btn" id="pracPrev">上一题</button>
+                <button class="btn act" id="pracNext" style="flex:1;justify-content:center">下一题 <svg class="ic" style="width:15px;height:15px"><use href="#i-arrow"/></svg></button>
+                <button class="btn" id="pracReset"><svg class="ic" style="width:14px;height:14px"><use href="#i-refresh"/></svg>重做本组</button>
+              </div>
+            </div>
+            <div class="sess" style="margin-top:20px" id="pracSess">
+              <div class="s"><span class="k">本组进度</span><span class="v">—</span></div>
+              <div class="s"><span class="k">正确率</span><span class="v">—</span></div>
+            </div>
+          </div>
+          <div>
+            <div class="sechd"><h3>错因归因</h3><span class="meta">答错自动打标</span></div>
+            <div class="card"><div class="rows" id="errlist"></div></div>
+            <p class="hint" style="margin-top:18px">答错即入库，连续答对 2 次自动移出。归因决定下次练什么，不需要你手动分类。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 7 考场 ============ -->
+      <section class="page" id="p-exam">
+        <div class="pickbar">
+          <button class="sel" id="examPick"><span id="examNameT">—</span><svg class="ic cv" style="width:16px;height:16px"><use href="#i-cv"/></svg></button>
+          <span class="bdg" id="examMeta">—</span>
+          <span style="margin-left:auto"></span>
+          <button class="btn act" id="timerBtn"><svg class="ic" style="width:15px;height:15px"><use href="#i-timer"/></svg>开始计时</button>
+        </div>
+
+        <div class="grid2b">
+          <div>
+            <div class="pickbar" id="examGroups" style="box-shadow:none;margin-bottom:16px"></div>
+            <div class="passage" id="examPassage" style="margin-bottom:20px;display:none">—</div>
+            <div class="q">
+              <div class="qno"><span class="bdg" id="examQNo">第 — 题</span><span class="bdg" id="examQLabel">—</span></div>
+              <div class="stem" id="examStem">—</div>
+              <div class="opts" id="examOpts"></div>
+              <div class="explain reveal" id="examExp"><div class="k">判定</div><p id="examExpT">—</p></div>
+              <div style="display:flex;gap:12px;margin-top:22px">
+                <button class="btn" id="examPrevQ">上一题</button>
+                <button class="btn act" id="examNextQ" style="flex:1;justify-content:center">下一题 <svg class="ic" style="width:15px;height:15px"><use href="#i-arrow"/></svg></button>
+              </div>
+            </div>
+            <div class="sec" style="margin-top:24px">
+              <div class="sechd"><h3>题目出生证明</h3><span class="meta">每道原题都能查到出处</span></div>
+              <div class="card"><div class="qsrc" id="examSrc"></div></div>
+            </div>
+          </div>
+          <div>
+            <div class="card pad" style="text-align:center">
+              <span class="lbl">剩余时间</span>
+              <div class="timer" style="margin-top:10px" id="clock">--:--</div>
+              <div class="sub" id="clockMeta" style="margin-top:10px">—</div>
+            </div>
+            <div class="sec" style="margin-top:20px">
+              <div class="sechd"><h3>答题卡</h3><span class="meta" id="sheetMeta">—</span></div>
+              <div class="card pad"><div class="sheet" id="sheet"></div></div>
+            </div>
+            <button class="btn act block lg" style="margin-top:20px" id="examSubmit">交卷看分</button>
+            <div class="scorecard" id="examScore" hidden></div>
+            <p class="hint" id="examHint" style="margin-top:14px">绿色已答、红色错题。点题号跳到那一题；分数只按本机真实作答算。</p>
+            <div class="sec" style="margin-top:20px">
+              <div class="sechd"><h3>这套卷交过几次</h3><span class="meta" id="examHisMeta">—</span></div>
+              <div class="card" id="examHistory"><p class="sub" style="padding:16px 22px">还没有交过卷——分数只在你点了「交卷看分」之后才有</p></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 8 统计 ============ -->
+      <section class="page" id="p-stats">
+        <div class="kpis" id="statsKpi"></div>
+        <div class="sec grid2">
+          <div>
+            <div class="sechd"><h3>资源盘点</h3><span class="meta">按实际条目数归一</span></div>
+            <div class="card"><div class="statbars" id="statsBars"></div></div>
+          </div>
+          <div>
+            <div class="sechd"><h3>词记忆状态 · 前 5 词</h3><span class="meta" id="fakeMeta">—</span></div>
+            <div class="card" id="statsMem"></div>
+            <div class="sechd" style="margin-top:20px"><h3>错因分布</h3><span class="meta">答错时手动打标</span></div>
+            <div class="card" id="statTags"></div>
+            <div class="advice" style="margin-top:20px">
+              <span class="av"><svg class="ic" style="width:18px;height:18px"><use href="#i-spark"/></svg></span>
+              <div><b>明天怎么改</b><p id="adviceNext">—</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="sec" style="margin-top:22px">
+          <div class="sechd"><h3>讲题准确率 · 自己盯自己</h3><span class="meta" id="expMeta">—</span></div>
+          <div class="card pad">
+            <div class="expl" id="expCard"><p class="sub">加载中…</p></div>
+          </div>
+        </div>
+        <div class="sec" style="margin-top:22px">
+          <div class="sechd"><h3>真实投入时长</h3><span class="meta" id="timeMeta">—</span></div>
+          <div class="card" id="timeCard"><p class="sub" style="padding:16px 22px">取时长中…</p></div>
+        </div>
+        <div class="sec" style="margin-top:22px">
+          <div class="sechd"><h3>本机备份 · 一键导出可恢复</h3><span class="meta" id="bakMeta">—</span></div>
+          <div class="card pad">
+            <p class="sub" id="bakHint">备份 = 整库快照（事件、记忆、作答、笔记、交卷记录），写在 data/backup/ 下，不上传任何地方。</p>
+            <div style="display:flex;gap:10px;margin-top:12px"><button class="btn act" id="bakMake">导出一份备份</button></div>
+            <div id="bakList" style="margin-top:14px"></div>
+          </div>
+        </div>
+        <div class="sec" style="margin-top:22px">
+          <div class="sechd"><h3>多端同步 · 两台机器接着学</h3><span class="meta" id="syncMeta">—</span></div>
+          <div class="card pad">
+            <p class="sub" id="syncHint">同步目录放在网盘 / U 盘里，两台机器都指向它：这边推一份上去，那边拉回来合并。</p>
+            <p class="sub" id="syncResult" style="display:none;margin-top:10px"></p>
+            <div style="display:flex;gap:10px;margin-top:12px"><button class="btn act" id="syncPush">推出本机</button></div>
+            <div id="syncList" style="margin-top:14px"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 10 作文 ============ -->
+      <section class="page" id="p-writing">
+        <div class="grid2b">
+          <div>
+            <div class="sechd"><h3>真题作文</h3><span class="meta" id="wrMeta">—</span></div>
+            <div class="card"><div class="wlist" id="wrList"><p class="sub" style="padding:16px 22px">正在取题单…</p></div></div>
+          </div>
+          <div>
+            <div class="sechd"><h3>写与批改</h3><span class="meta" id="wrState">—</span></div>
+            <div class="card pad">
+              <div class="wr-prompt" id="wrPrompt">选一道题，这里会显示原卷题干、要点与中英对照表。</div>
+              <textarea class="wr-in" id="wrText" rows="14" placeholder="在这里写。写完点「交给本机 + 模型批改」。"></textarea>
+              <div class="wr-acts">
+                <span class="wr-count" id="wrCount">0 词</span>
+                <button class="btn act" id="wrGrade" disabled>交给本机 + 模型批改</button>
+              </div>
+              <div id="wrResult"></div>
+            </div>
+            <div class="sechd" style="margin-top:24px"><h3>我写过的</h3><span class="meta" id="wrMineMeta">—</span></div>
+            <div class="card"><div id="wrMine"><p class="sub" style="padding:16px 22px">还没写过</p></div></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 9 Agent 工具台 ============ -->
+      <section class="page" id="p-agent">
+        <div class="grid2b">
+          <div>
+            <div class="sechd"><h3>工具注册表</h3><span class="meta">界面只调工具，不直连数据</span></div>
+            <div class="card"><div id="toolreg"></div></div>
+          </div>
+          <div>
+            <div class="sechd"><h3>最近调用</h3><span class="meta">实时</span></div>
+            <div class="card" id="toollog"><div class="sub" style="padding:16px 22px">切页面会触发工具调用</div></div>
+        <div class="sec" style="margin-top:22px">
+          <div class="sechd"><h3>用哪家的模型说话</h3><span class="meta" id="aiMeta">—</span></div>
+          <div class="card pad">
+            <p class="sub" id="aiHint">讲题、作文批改、提问都走这里选的那一家。换一家不用改代码，也不用装那个平台的客户端。</p>
+            <div class="aiprov" id="aiProvs"></div>
+            <div class="airow" id="aiLoginRow" hidden>
+              <textarea id="aiCred" class="inp" rows="3" placeholder="把平台上导出的凭据整份贴进来（或 Trae 的 iCubeAuthInfo 那一长串）"></textarea>
+              <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap">
+                <button class="btn act" id="aiLoginGo">存进来</button>
+                <button class="btn sm" id="aiLoginCancel">取消</button>
+                <span class="sub" id="aiLoginWhy" style="align-self:center"></span>
+              </div>
+            </div>
+            <div class="airow" id="aiModelRow" style="margin-top:14px">
+              <span class="lbl">模型</span>
+              <select id="aiModelSel" class="inp" style="flex:1;min-width:200px"></select>
+              <button class="btn sm" id="aiModelsGo">问这家要清单</button>
+              <button class="btn sm" id="aiRefresh">续期</button>
+              <button class="btn sm" id="aiForget">退出</button>
+            </div>
+            <p class="sub" id="aiState" style="margin-top:10px">—</p>
+          </div>
+        </div>
+            <div class="sechd" style="margin-top:24px"><h3>Jev 决策 · 影子模式</h3><span class="meta" style="color:var(--s-vo)">不控制训练流</span></div>
+            <div class="card pad">
+              <p class="sub" id="jevNow">—</p>
+              <div class="jevc" id="jevCands"></div>
+              <div id="jevRule" style="margin-top:16px;border-top:1px solid var(--line);padding-top:16px"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+    </div>
+  </div>
+</div>
+
+<!-- ================= 右侧置顶：笔记画布 ================= -->
+<aside class="ndock" id="ndock">
+  <div class="ndock-panel" id="ndockPanel" hidden>
+    <div class="ndock-hd">
+      <b>笔记画布</b>
+      <span class="sub" id="ndockSub">—</span>
+    </div>
+    <div class="ndock-body">
+      <button class="btn act block" id="ndNew" style="width:100%;margin-bottom:12px;display:flex;align-items:center;justify-content:center;gap:7px">
+        <svg class="ic" style="width:15px;height:15px"><use href="#i-plus"/></svg>新建一张画布
+      </button>
+      <div id="ndCards"></div>
+      <button class="btn sm" id="ndMore" style="width:100%;margin-top:2px">其它笔记软件</button>
+
+      <div class="ndock-xm">
+        <div class="ndock-hd2">云端同步</div>
+            <div style="display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap">
+              <button class="btn sm" id="xmLogin" hidden>登录 XMind</button>
+              <button class="btn sm" id="xmPull" hidden>拉 XMind 导图</button>
+              <button class="btn sm" id="xmLogout" hidden>断开</button>
+              <span class="sub" id="xmState" style="margin-left:auto">未登录</span>
+            </div>
+            <div id="xmManual" style="display:flex;gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap" hidden>
+              <input id="xmCode" class="inp" style="flex:1;min-width:220px"
+                     placeholder="授权完把浏览器地址栏那串回调 URL 粘到这里">
+              <button class="btn sm" id="xmCodeGo">用这个连上</button>
+            </div>
+            <div id="xmList" style="margin-top:10px"></div>
+      </div>
+    </div>
+  </div>
+  <button class="ndock-tab" id="ndockTab" title="笔记画布：点开看本讲的所有导图">
+    <svg class="ic"><use href="#i-chev"/></svg>
+    <span>笔记</span>
+    <b class="ndock-n" id="ndockN">0</b>
+  </button>
+</aside>
+
+<!-- ================= 全屏画布 ================= -->
+<div class="cvwrap" id="cvwrap" hidden>
+  <div class="cvtop">
+    <button class="cvback" id="cvBack"><svg class="ic"><use href="#i-chev"/></svg>返回</button>
+    <input class="cvtitle" id="cvTitle" value="未命名画布" spellcheck="false">
+    <span class="cvbadge" id="cvBadge">本地</span>
+    <div class="cvtools">
+      <button class="cvbtn" id="cvChild" title="给选中节点加子节点（Tab）"><svg class="ic"><use href="#i-node"/></svg>子节点</button>
+      <button class="cvbtn" id="cvSib" title="加同级节点（Enter）"><svg class="ic"><use href="#i-plus"/></svg>同级</button>
+      <span class="cvsep"></span>
+      <button class="cvbtn" id="cvImport" title="从 Markdown 导入"><svg class="ic"><use href="#i-md"/></svg>导入 MD</button>
+      <button class="cvbtn" id="cvExport" title="导出 Markdown"><svg class="ic"><use href="#i-dl"/></svg>导出</button>
+      <span class="cvsep"></span>
+      <button class="cvbtn" id="cvUndo" title="撤销（Ctrl+Z）" disabled><svg class="ic"><use href="#i-undo"/></svg></button>
+      <button class="cvbtn" id="cvRedo" title="重做（Ctrl+Shift+Z）" disabled><svg class="ic"><use href="#i-redo"/></svg></button>
+      <button class="cvbtn" id="cvSearch" title="搜索节点（Ctrl+F）"><svg class="ic"><use href="#i-search"/></svg></button>
+      <button class="cvbtn" id="cvPng" title="导出成图片"><svg class="ic"><use href="#i-img"/></svg></button>
+      <button class="cvbtn" id="cvLayout" title="现在是自动排，点一下改成自由摆放"><svg class="ic"><use href="#i-shape"/></svg><span id="cvLayoutT">树形</span></button>
+      <button class="cvbtn" id="cvTheme" title="主题：深夜（点一下换下一套）"><svg class="ic"><use href="#i-palette"/></svg></button>
+      <button class="cvbtn" id="cvEdge" title="连线：折线（点一下换形状）"><svg class="ic"><use href="#i-link"/></svg></button>
+      <button class="cvbtn" id="cvInsight" title="把选中节点的一整支收成概要"><svg class="ic"><use href="#i-frame"/></svg>概要</button>
+      <button class="cvbtn" id="cvShot" title="把这张导图截下来，存进本学科的截图库"><svg class="ic"><use href="#i-cam"/></svg>存进截图库</button>
+      <button class="cvbtn" id="cvGal" title="本学科的截图库：点一张就拉进画布"><svg class="ic"><use href="#i-gal"/></svg>截图库<span id="cvGalN" class="cvgaln">0</span></button>
+<button class="cvbtn" id="cvPush" hidden title="把这张画布原样写回它来自的那篇笔记">写回原笔记</button>
+      <button class="cvbtn" id="cvSrcs" title="可接入的笔记软件"><svg class="ic"><use href="#i-spark"/></svg>来源</button>
+      <span class="cvsep"></span>
+      <button class="cvbtn on" id="cvToggleL" title="显示/隐藏大纲"><svg class="ic"><use href="#i-list"/></svg></button>
+      <button class="cvbtn on" id="cvToggleR" title="显示/隐藏检查器"><svg class="ic"><use href="#i-panel"/></svg></button>
+      <button class="cvbtn" id="cvFit" title="缩放到适合屏幕"><svg class="ic"><use href="#i-fit"/></svg></button>
+      <span class="cvsave" id="cvSave">已保存</span>
+    </div>
+  </div>
+  <div class="cvmain">
+    <aside class="cvleft" id="cvLeft">
+      <div class="cvph"><span class="lbl">大纲</span><span class="sub" id="cvOutN">—</span></div>
+      <div class="cvoutline" id="cvOutline"></div>
+    </aside>
+    <div class="cvstage" id="cvStage">
+      <div class="cvscene" id="cvScene">
+        <svg class="cvedges" id="cvEdges"><defs><marker id="cvArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="currentColor" stroke="none"/></marker></defs></svg>
+      </div>
+      <div class="cvfind" id="cvFind" hidden>
+        <svg class="ic" style="width:14px;height:14px;opacity:.6"><use href="#i-search"/></svg>
+        <input id="cvFindIn" placeholder="搜节点文字或备注…" spellcheck="false">
+        <span class="cnt" id="cvFindN">—</span>
+        <button class="cvfind-step" id="cvFindPrev" aria-label="上一个">↑</button>
+        <button class="cvfind-step" id="cvFindNext" aria-label="下一个">↓</button>
+        <button class="cvfind-x" id="cvFindX" aria-label="关闭">×</button>
+      </div>
+      <div class="cvzoom">
+        <button id="cvZoomOut" title="缩小">−</button>
+        <span class="pct" id="cvPct">100%</span>
+        <button id="cvZoomIn" title="放大">+</button>
+        <button id="cvZoomFit" title="适合屏幕"><svg class="ic" style="width:14px;height:14px"><use href="#i-fit"/></svg></button>
+      </div>
+      <div class="cvhint">
+        <kbd>双击</kbd> 改字 · <kbd>Tab</kbd> 子节点 · <kbd>Enter</kbd> 同级
+        <button class="cvkeys" id="cvKeys" title="全部快捷键（也可以按 ?）">
+          <svg class="ic" style="width:13px;height:13px"><use href="#i-keys"/></svg>全部
+        </button>
+      </div>
+    </div>
+    <aside class="cvright" id="cvRight">
+      <div class="cvph"><span class="lbl">检查器</span><span class="sub" id="cvInspN">—</span></div>
+      <div class="cvinsp" id="cvInsp"></div>
+    </aside>
+  </div>
+</div>
+
+<!-- 截图动画：拍下来的一瞬从这里飞进右侧坞，飞完自己消失 -->
+<div class="cvtoast" id="cvToast" hidden></div>
+<div class="shotfly" id="shotFly" hidden>
+  <div class="shotfly-paper" id="shotFlyP"></div>
+  <div class="shotfly-flash" id="shotFlyF"></div>
+  <div class="shotfly-tip" id="shotFlyT"></div>
+</div>
+
+<!-- 截图库（按学科分） -->
+<div class="cvmodal" id="cvGalMod" hidden>
+  <div class="cvmodbox galbox">
+    <div class="cvmodhd">
+      <b>截图库</b>
+      <span class="cvgal-sub" id="galSub">—</span>
+      <button class="cvmini" id="cvModX7" style="margin-left:auto">关掉</button>
+    </div>
+    <div class="cvmodbd" id="cvModB7">
+      <div class="galtabs" id="galTabs"></div>
+      <div class="galbar">
+        <input class="galq" id="galQ" placeholder="搜标题或讲次，例如「句子成分」「english-68」">
+        <button class="cvmini galqclr" id="galQClr" title="清掉搜索词">清掉</button>
+        <span class="galbsp"></span>
+        <button class="cvmini" id="galGroup" title="把同一讲的截图折成一组">按讲次分组</button>
+        <select class="galtsel" id="galTagSel" title="按标签筛"></select>
+      </div>
+      <div class="galgrid" id="galGrid"></div>
+    </div>
+    <div class="cvmodft galft" id="cvModF7">
+      <span class="gal-foot" id="galFoot"></span>
+      <button class="cvmini" id="galGc" title="看 data/shots 里有多少张图已经没人引用了">清磁盘</button>
+      <button class="btn act sm" id="galShotNow">
+        <svg class="ic" style="width:14px;height:14px"><use href="#i-cam"/></svg>现在截一张
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="galbig" id="galBig" hidden>
+  <!-- 图不在 DOM 里常驻：没 src 的 <img> 会被当成坏图，打开时才建、关掉就摘 -->
+  <div class="galbig-bd" id="galBigBd"></div>
+  <div class="galbig-hd">
+    <b id="galBigT">—</b>
+    <div class="galbigtags" id="galBigTags"></div>
+    <span id="galBigM">—</span>
+    <button class="cvmini" id="galBigIn">插进选中节点</button>
+    <button class="cvmini" id="galBigNode">挂成新节点</button>
+    <button class="cvmini" id="galBigX" style="margin-left:auto">关掉</button>
+  </div>
+</div>
+<div class="cvmenu" id="cvMenu" hidden></div>
+
+<div class="cvmodal" id="cvMod" hidden>
+  <div class="cvmodbox">
+    <div class="cvmodhd"><b id="cvModT">—</b><button class="x" id="cvModX" aria-label="关闭">×</button></div>
+    <div class="cvmodbd" id="cvModB"></div>
+    <div class="cvmodft" id="cvModF"></div>
+  </div>
+</div>
+
+<link rel="stylesheet" href="canvas.css">
+<script src="app.js"></script>
+<script src="canvas.js"></script>
+</body>
+</html>
