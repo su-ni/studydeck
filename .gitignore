@@ -1,0 +1,47 @@
+# ============================================================
+# 研学台 StudyDeck · 参赛仓库忽略规则
+# 原则：本机真实数据、密钥、依赖、构建产物一律不进公开仓库
+# ============================================================
+
+# 1) 本机数据：真实学习记录（study.db）、视频缓存 406M、讲义缓存 56M、
+#    备份 23M、截图、AI 生成题 —— 含个人隐私且体积 489M，绝不入库
+data/
+data-blank/
+sync/
+
+# 2) 密钥与本机配置（赛方明确：API 密钥不得出现在公开仓库）
+server/config.local.json
+*.local.json
+.env
+.env.*
+config.example.json.bak
+
+# 3) 依赖与虚拟环境
+node_modules/
+app/node_modules/
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 4) 构建产物：README 写了 npm run build，评审可自行构建
+app/dist/
+web/app-dist/
+web/app-dist-dev/
+*.tsbuildinfo
+
+# Windows 保留名，git 无法索引（历史遗留的空文件）
+NUL
+
+# 5) 日志与临时文件
+*.log
+logs/
+tmp/
+temp/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# 6) 手动备份的库（含真实作答记录）
+*.db.bak*
