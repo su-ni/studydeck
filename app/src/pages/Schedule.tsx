@@ -31,7 +31,10 @@ type Week = {
 // 实现统一在 V6.clsColor：服务端 cls 是 coral/teal 这类颜色词，不是 cs/en。
 const colOf = (id: string) => clsColor(id)
 
-export function Schedule({ base }: { base: Base }) {
+export function Schedule({ base, go }: {
+  base: Base
+  go?: (p: any, o?: { sid?: string }) => void
+}) {
   const wk = useTool<Week>('plan_week')
   const [mins, setMins] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
@@ -78,6 +81,11 @@ export function Schedule({ base }: { base: Base }) {
     bySub.sort((a, b) => b.minutes - a.minutes)
   }
   const barSum = bySub.reduce((a, x) => a + x.minutes, 0)
+
+  async function openBlock(b: Blk) {
+    if (b.lesson_id) await callTool('pick_lesson', { lesson_id: b.lesson_id }, { write: true })
+    go?.('classroom', b.subject ? { sid: b.subject } : undefined)
+  }
 
   return (
     <>
@@ -135,9 +143,14 @@ export function Schedule({ base }: { base: Base }) {
                     <span>{md(day.date)}</span>
                     <em>{day.minutes ? day.minutes + '′' : '—'}</em>
                   </div>
+                  {/* 块以前是纯 div —— 48 个块一个都点不动。
+                      现在点一下：先定这一讲（pick_lesson），再带科目进课堂。 */}
                   {(day.blocks || []).map((b, i) => (
-                    <div key={i} className={'blk-mn ' + (b.cls || '')}
-                      title={`${b.subject_name} · ${b.chapter} · ${b.title}`}>
+                    <div key={i} className={'blk-mn blk-clk ' + (b.cls || '')}
+                      role="button" tabIndex={0}
+                      title={`${b.subject_name} · ${b.chapter} · ${b.title}　点击进这一讲`}
+                      onClick={() => openBlock(b)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') openBlock(b) }}>
                       <b style={{ color: colOf(b.subject) }}>
                         {(b.subject_name || '').slice(0, 3)}{b.part ? ' · 接上' : ''}
                       </b>

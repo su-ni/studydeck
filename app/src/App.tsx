@@ -108,7 +108,7 @@ export function App() {
         {page === 'today' && <Today base={base} go={go} />}
         {page === 'classroom' && <Classroom base={base} goCanvas={goCanvas} initSid={sid} />}
         {page === 'courses' && <Courses base={base} go={go} />}
-        {page === 'schedule' && <Schedule base={base} />}
+        {page === 'schedule' && <Schedule base={base} go={go} />}
         {page === 'vocab' && <Vocab base={base} />}
         {page === 'practice' && <Practice base={base} />}
         {page === 'exam' && <Exam base={base} />}

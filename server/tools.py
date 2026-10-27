@@ -1244,7 +1244,18 @@ def t_stats(**_):
                   "boxes": mem["boxes"]},
         "bank": {"name": bank.get("name"), "total": bank.get("total")},
         "answers": st,
-        "exam_papers": len(((p.get("exam") or {}).get("papers")) or []),
+        # 卷数以前数 proto（15），而考场页读 list_exam_papers（16，含 papers_extra.json）——
+        # 同一台机器两页两个数。这里统一走 datahub.exam_papers()（它已经合并了 extra）。
+        "exam_papers": len(datahub.exam_papers().get("papers") or []),
+        # 真题可判分题数：拿题源自报的 total，别在页面上写死一个 995。
+        "exam_bank_total": next((x.get("total") for x in datahub.item_sources()
+                                 if x.get("id") == datahub.SRC_EXAM), 0),
+        # 词量：以前只取第一本书（3790），后拉进来的 419/3287/4056 全不进计数。
+        # 这里把每本都报出来，前端自己决定显示哪一本、合计多少。
+        "vocab_books": [{"name": x.get("name"), "count": x.get("count")}
+                        for x in ((p.get("vocab") or {}).get("lists") or [])],
+        "vocab_books_total": sum(int(x.get("count") or 0)
+                                 for x in ((p.get("vocab") or {}).get("lists") or [])),
         "point_cards": [{"name": c["name"], "count": c["count"]} for c in pods],
         "days7": store.last_7d_minutes(),
         "time": store.learning_seconds(),

@@ -18,7 +18,9 @@ type PlanRow = {
 
 const MODE_KEY = 'sd.react.today.mode'
 
-function Cards({ go }: { go: (p: PageKey) => void }) {
+type Go = (p: PageKey, o?: { sid?: string }) => void
+
+function Cards({ go }: { go: Go }) {
   const plan = useTool<{ rows: PlanRow[]; rule: string; due_today: number; note?: string }>('plan_today')
   const st = useTool<{
     lessons: { done: number; total: number }
@@ -84,7 +86,7 @@ function Cards({ go }: { go: (p: PageKey) => void }) {
               </div>
               <div className="note-mn bare">{first.meta}</div>
               <div style={{ marginTop: 13 }}>
-                <PBtn onClick={() => go((first.page as PageKey) || 'classroom')}>
+                <PBtn onClick={() => go((first.page as PageKey) || 'classroom', first.subject ? { sid: String(first.subject) } : undefined)}>
                   <Icon n="play" size={13} />　{first.action}
                 </PBtn>
               </div>
@@ -108,8 +110,10 @@ function Cards({ go }: { go: (p: PageKey) => void }) {
                 <span>{r.meta}</span>
               </div>
               <div className="ac">
+                {/* 这一行的 subject / lesson_id 必须带过去。
+                    以前只 go(r.page)，「开新坑 · 高等数学」点下去落在计算机 —— 五张卡点四张都是同一门课。 */}
                 <button className={'pbtn-mn' + (i === 0 ? '' : ' ghost')}
-                  onClick={() => go((r.page as PageKey) || 'today')}>{r.action}</button>
+                  onClick={() => go((r.page as PageKey) || 'today', r.subject ? { sid: String(r.subject) } : undefined)}>{r.action}</button>
               </div>
             </div>
           )) : (
@@ -130,7 +134,7 @@ function Cards({ go }: { go: (p: PageKey) => void }) {
 }
 
 /* ================= 今日页：聊天是主界面，卡片是辅助视图 ================= */
-export function Today({ go }: { base: Base; go: (p: PageKey) => void }) {
+export function Today({ go }: { base: Base; go: Go }) {
   /* 默认就是聊天。卡片看板还在，靠聊天框右上角那个键切过来 ——
      它不再是「AI 主导 / 卡片主导」两个并列模式，而是一个主界面和一个辅助视图。 */
   const [cards, setCards] = useState<boolean>(() => {

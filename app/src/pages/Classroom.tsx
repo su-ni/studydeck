@@ -78,6 +78,12 @@ export function Classroom({ base, goCanvas, initSid }: {
   // 时间轴要用：视频总长 + 当前秒。都从 <video> 自己读，不另算。
   const [dur, setDur] = useState(0)
   const [curSec, setCurSec] = useState(0)
+  /* 真实观看秒数：只在「正常播放推进」时累计，拖动跳转不计（差值过大当跳转）。
+     每 15 秒上报一次 log_playback —— 不这样的话统计页的投入时长永远是 0，
+     而页面还写着「只算播放器真的报上来的秒数」，等于在说一句假话。 */
+  const accSec = useRef(0)
+  const lastPos = useRef(0)
+  const lastUp = useRef(0)
   /* 影院模式：整页铺满，目录和右栏都收起来，只留播放器 + 顶栏一条。
      不用浏览器原生全屏 —— 原生全屏里 keydown 不再进页面，S 键截帧会失效。
      所以在页面内自己做「铺满」，Esc 退出。 */
@@ -105,7 +111,10 @@ export function Classroom({ base, goCanvas, initSid }: {
     if (r.ok) cur.run()
   }
 
-  useEffect(() => { setStarted(false); setVErr(null); setArmed(false); setBuf(false) }, [lid])
+  useEffect(() => {
+    setStarted(false); setVErr(null); setArmed(false); setBuf(false)
+    accSec.current = 0; lastPos.current = 0; lastUp.current = 0
+  }, [lid])
 
   /* ── 截这一帧（S 键）────────────────────────────────────────────
      帧从 <video> 上直接 drawImage 抓，不重新去要一路视频 —— B 站的流带签名、
@@ -327,7 +336,21 @@ export function Classroom({ base, goCanvas, initSid }: {
                 onPlaying={() => setBuf(false)}
                 onCanPlay={() => setBuf(false)}
                 onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
-                onTimeUpdate={(e) => setCurSec(e.currentTarget.currentTime || 0)}
+                onTimeUpdate={(e) => {
+                  const t = e.currentTarget.currentTime || 0
+                  setCurSec(t)
+                  const d = t - lastPos.current
+                  lastPos.current = t
+                  if (d > 0 && d < 2.5) accSec.current += d
+                  const now = Date.now()
+                  if (lid && accSec.current >= 15 && now - lastUp.current >= 15000) {
+                    const sec = Math.round(accSec.current)
+                    accSec.current = 0
+                    lastUp.current = now
+                    callTool('log_playback',
+                      { lesson_id: lid, pos_sec: Math.round(t), seconds: sec }, { write: true }).catch(() => {})
+                  }
+                }}
                 onError={() => setVErr('这一讲取不到播放文件 —— 合流没成，或 B 站那边改了规矩。'
                   + ' 下面「去 B 站看」还能用。')}
                 style={{ width: '100%', height: '100%', objectFit: 'contain', background: '#000' }} />

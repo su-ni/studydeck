@@ -58,6 +58,11 @@ export function Stats({ base }: { base: Base }) {
 
   const lessons = d?.lessons ?? { done: 0, total: 0 }
   const words = d?.words ?? { in_memory: 0, due_today: 0, total: 0, boxes: {} }
+  /* 真题可判分题数：以前这里写死 995，实际题库比它多/少都对不上。
+     现在读 stats_overview 回的真数（题源自报的 total），查不到就显示「—」。 */
+  const examN = (d as any)?.exam_bank_total ?? 0
+  const books: { name: string; count: number }[] = (d as any)?.vocab_books ?? []
+  const booksN = (d as any)?.vocab_books_total ?? 0
   const ans = d?.answers ?? { answered: 0, right: 0, wrong: 0, accuracy: null }
   const boxes = words.boxes || {}
   const boxMax = Math.max(1, ...Object.values(boxes).map(Number))
@@ -262,8 +267,9 @@ export function Stats({ base }: { base: Base }) {
       </div>
 
       <div className="note-mn">
-        本机家底合计 <b style={{ color: 'var(--tx2)' }}>{words.total + (d?.bank?.total ?? 0) + 995 + cardTotal}</b> 条
-        （词 {words.total} + 语法 {d?.bank?.total ?? 0} + 真题 995 + 考点卡 {cardTotal}）。
+        本机家底合计 <b style={{ color: 'var(--tx2)' }}>{words.total + (d?.bank?.total ?? 0) + examN + cardTotal}</b> 条
+        （词 {words.total} + 语法 {d?.bank?.total ?? 0} + 真题 {examN || '—'} + 考点卡 {cardTotal}）。
+        {booksN > words.total ? `　另有 ${books.length - 1} 本词书共 ${booksN} 词，可背总数 ${booksN}。` : ''}
         上面每个数字都能用一条 curl 打回同一行 —— 统计页不自己算第二遍。
       </div>
     </>

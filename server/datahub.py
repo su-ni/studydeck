@@ -1252,6 +1252,10 @@ def source_questions(source, part=None, limit=config.QUIZ_DEFAULT_SIZE, offset=0
                         "opts": q.get("opts") or {}, "ans": q.get("ans"),
                         "explain": None, "topic": g.get("label"),
                     })
+        # 分段过滤：以前这个分支**压根没有 if part**，练习页摆着分段下拉、
+        # 选「完形填空」还是第 1 题 —— 选项动了，题不动。按题型名（label）或卷 id 都认。
+        if part:
+            rows = [r for r in rows if part in (r.get("group"), r.get("part"))]
         page = rows[int(offset):int(offset) + int(limit)]
         return {"source": source, "subject": meta["subject"], "part": part,
                 "parts": [{"name": k, "n": v} for k, v in parts.items()],

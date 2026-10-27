@@ -3233,3 +3233,20 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 /* 课程主页自己画 42px 抬头，壳只留一条空顶栏给右上的 pill */
 .top-bare { height: 20px; min-height: 20px; }
 .content-bare { padding-top: 6px; }
+
+/* 课表块的左边条：后端 cls_of 发的是颜色词（coral/teal/blue/amber/violet），
+   而样式里只定义了缩写（cs/en/math/pol）—— 两套词表不交，实测 48 个块的
+   border-left 全是 rgb(61,55,44)。这里把两套接上，别让「文字色对、条全灰」。 */
+.blk-mn.coral { border-left-color: var(--cs); }
+.blk-mn.coral b { color: var(--cs); }
+.blk-mn.teal { border-left-color: var(--en); }
+.blk-mn.teal b { color: var(--en); }
+.blk-mn.blue { border-left-color: var(--math); }
+.blk-mn.blue b { color: var(--math); }
+.blk-mn.amber { border-left-color: var(--pol); }
+.blk-mn.amber b { color: var(--pol); }
+.blk-mn.violet { border-left-color: #9B7BD4; }
+.blk-mn.violet b { color: #9B7BD4; }
+/* 块可点：48 个块以前一个都点不动 */
+.blk-mn.blk-clk { cursor: pointer; transition: border-color .14s, background .14s; }
+.blk-mn.blk-clk:hover { background: var(--card3); }

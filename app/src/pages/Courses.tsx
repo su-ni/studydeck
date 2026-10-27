@@ -39,7 +39,7 @@ function judgeTone(j: string): string {
   return 'im'
 }
 
-export function Courses({ base, go }: { base: Base; go: (p: any) => void }) {
+export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: string }) => void }) {
   const subs: any[] = (base as any).subjects ?? []
   const res: any[] = (base as any).resources ?? []
   const srcs: any[] = (base as any).sources ?? []
@@ -88,7 +88,7 @@ export function Courses({ base, go }: { base: Base; go: (p: any) => void }) {
             const col = clsColor(s.cls || s.accent || s.id)
             const bg = COVER_BG[s.cls || s.accent || s.id] || 'linear-gradient(135deg,#3A3328,#5B5344 130%)'
             return (
-              <button key={s.id} className="cc-mn" onClick={() => go('classroom')}
+              <button key={s.id} className="cc-mn" onClick={() => go('classroom', { sid: s.id })}
                 title={`${s.video_title || s.name} · ${s.lessons_done}/${s.lessons_total} 讲`}>
                 {/* 封面统一走 background：B 站真封面尺寸不一，<img> 会把 96px 的条撑高，
                     背景图 + cover 才能保证每张卡一样高。有真图时加 has-cover 压暗一档。 */}
