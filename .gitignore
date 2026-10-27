@@ -45,3 +45,6 @@ desktop.ini
 
 # 6) 手动备份的库（含真实作答记录）
 *.db.bak*
+
+# 空库实例配置：带本机绝对路径，且历史版本里曾含真实 token —— 永不入库
+server/config.blank.json
