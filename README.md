@@ -10,9 +10,9 @@
 | 技术栈 | React 18 + TypeScript(strict) + Vite ｜ Python FastAPI + SQLite ｜ 本机优先，无云端依赖 |
 
 <p align="center">
-  <img src="docs/img/readme-01-home.jpg" width="31%" alt="课程主页：接着学 + 章节 + 题源 + 家底" />
-  <img src="docs/img/readme-02-classroom.jpg" width="31%" alt="课堂：视频 + 讲义 + 词群 + 当堂测" />
-  <img src="docs/img/readme-03-practice.jpg" width="31%" alt="练习：781 题全量可翻可判" />
+  <img src="screenshots/01-course-home.jpg" width="31%" alt="课程主页：接着学 + 章节 + 题源 + 家底" />
+  <img src="screenshots/02-classroom.jpg" width="31%" alt="课堂：视频 + 讲义 + 词群 + 当堂测" />
+  <img src="screenshots/03-practice.jpg" width="31%" alt="练习：781 题全量可翻可判" />
 </p>
 
 ## 1. 它解决什么问题
@@ -95,7 +95,7 @@ python -m server.main    # 或 Windows 直接双击 start.bat
 ```
 研学台/
   app/                  前端源码（React + TS，Vite 构建到 ../web/app-dist）
-    src/pages/          11 个页面
+    src/pages/          11 个页面（课程主页 / 课堂 / 练习 / 考场 / 画布 …）
     src/components/     设计系统组件（V6.tsx）、全站统一下拉（Sel.tsx）
   server/               AI 接入层 + 本机数据层（FastAPI）
     tools.py            163 个工具的注册表
@@ -103,16 +103,18 @@ python -m server.main    # 或 Windows 直接双击 start.bat
     evidence.py         证据检索与引文逐字核对
     agent.py            Agent 循环、操作卡、空转保护、批量闸门
     config.example.json 配置模板（真值放 config.local.json，不入库）
-  web/                  静态壳 + 旧版三件套（/old，作对照保留）
-  docs/                 设计文档（参赛方案、差距清单、AI 交互、出题与判断模型、开发记录…）
-  tests/                无头探针（CDP + 真实断言，结果不手填）
+  screenshots/          README 用的三张界面实拍
+  requirements.txt     后端依赖
   data/                 本机数据（不入库：真实学习记录、视频缓存、截图）
 ```
 
+> 仓库只放可运行的前后端源码与配置模板；设计文档、验收探针、课程素材与真实数据都在本机，不入库。
+
 ## 6. 测试与质量
 
-- `tests/` 下 140+ 个无头探针：起真实服务、开无头 Chrome、断言界面真实行为（判分落库、题库翻页可达最后一题、弹层样式一致、全程无 console error）。
+- 开发期有 140+ 个无头探针：起真实服务、开无头 Chrome、断言界面真实行为（判分落库、题库翻页可达最后一题、弹层样式一致、全程无 console error）。
 - 每项功能改完必须「构建 + 探针全绿」才算完成；探针结果不手填。
+- 探针脚本依赖本机真实数据与路径，不随仓库发布。
 - 前端 `tsconfig` 开 `strict`；后端写盘操作必须自报成效，不自报会被强制标 `unknown` 并显示在界面上。
 
 ## 7. 团队信息
