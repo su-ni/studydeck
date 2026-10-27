@@ -41,22 +41,25 @@ function chRank(name: string) {
   return 9000
 }
 
-export function Classroom({ base, goCanvas }: {
+export function Classroom({ base, goCanvas, initSid }: {
   base: Base
   /* 右栏笔记卡的出口。以前这里是 <a href="#canvas"> —— 只会切到画布首页，
      「打开的是哪一张」这个信息当场丢掉，所以用户说「进不去本讲笔记」。
      交给上层带 mapId / lessonId 走。 */
   goCanvas?: (o: { mapId?: string; lessonId?: string }) => void
+  /* 左栏选的科目：从课程主页点进来时必须听它的，
+     否则课堂按自己的默认科目取断点，跳到别的课上去。 */
+  initSid?: string
 }) {
   const subs: Subj[] = (base as any).subjects ?? []
   /* 默认跟 base 走（后端已按分值 + 最近动过排过序）；库里没科目就留空让后端自己挑。 */
-  const [sid, setSid] = useState<string>(subs[0]?.id ?? '')
+  const [sid, setSid] = useState<string>(initSid || subs[0]?.id || '')
   const [sidTouched, setSidTouched] = useState(false)
   useEffect(() => {
     if (sidTouched) return
-    const first = subs[0]?.id
-    if (first && first !== sid) setSid(first)
-  }, [subs, sidTouched, sid])
+    const want = initSid || subs[0]?.id
+    if (want && want !== sid) setSid(want)
+  }, [subs, sidTouched, sid, initSid])
 
   const cur = useTool<Cur>('get_current_lesson', { subject: sid })
   const lid = cur.data?.lesson?.id

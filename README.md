@@ -10,9 +10,9 @@
 | 技术栈 | React 18 + TypeScript(strict) + Vite ｜ Python FastAPI + SQLite ｜ 本机优先，无云端依赖 |
 
 <p align="center">
-  <img src="docs/img/readme-01-today.jpg" width="31%" alt="今日驾驶舱" />
-  <img src="docs/img/readme-02-classroom.jpg" width="31%" alt="课堂：视频+讲义+词群+当堂测" />
-  <img src="docs/img/readme-03-canvas.jpg" width="31%" alt="画布：本讲笔记导图" />
+  <img src="docs/img/readme-01-home.jpg" width="31%" alt="课程主页：接着学 + 章节 + 题源 + 家底" />
+  <img src="docs/img/readme-02-classroom.jpg" width="31%" alt="课堂：视频 + 讲义 + 词群 + 当堂测" />
+  <img src="docs/img/readme-03-practice.jpg" width="31%" alt="练习：781 题全量可翻可判" />
 </p>
 
 ## 1. 它解决什么问题
@@ -25,6 +25,7 @@
 
 ## 2. 功能清单（都能点、都能落库）
 
+- **课程主页**（首屏）：一进来先看总览——多少讲、多少小时、学到哪、这一讲接着看什么、哪几章、有哪些题源；右栏是家底、走完多少、缺什么
 - **今日**：主行动 + 今日队列，四格 KPI 点了直接去干活
 - **课堂**：讲节目录（889 讲按章分组可跳）+ 本地视频 / B 站播放 + 词群 / 讲义 / 当堂测 / 提问四个侧舱 + 截帧打点
 - **课程库**：五科课程卡片（计算机 200 分 / 英语 / 高数 / 政治 / C 语言）
@@ -35,6 +36,8 @@
 - **作文**：13 道真题作文 + 汉译英，AI 批改
 - **画布**：本讲笔记导图引擎（自动布局、撤销重做、MD 导入、6 种导出、XMind 拉推）
 - **助手**：一句话编排 163 个本机工具——找课、拉词书、排计划、批量入库；写盘前要确认
+
+> 左侧栏按「课程 / 这门课 / 全部」三段组织：点一门课，课程主页、课堂、课表、背单词、练习整站跟着换科目，不用每页各选一次。
 
 ## 3. 技术架构
 

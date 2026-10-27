@@ -2957,7 +2957,7 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .qnav-mn .pn-mn,
 .qnav-mn .jump-mn { display: inline-flex; align-items: center; gap: 6px; }
 /* 同一行里下拉和按钮必须一般高 —— 高 2px 的差别在并排时比颜色更扎眼。 */
-.qnav-mn button {
+.qnav-mn button:not(.csel) {
   height: 30px;
   padding: 0 10px;
   border-radius: var(--rp);
@@ -2969,8 +2969,8 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
   cursor: pointer;
   white-space: nowrap;
 }
-.qnav-mn button:hover:not(:disabled) { border-color: var(--line2); color: var(--tx); }
-.qnav-mn button:disabled { opacity: .38; cursor: default; }
+.qnav-mn button:not(.csel):hover:not(:disabled) { border-color: var(--line2); color: var(--tx); }
+.qnav-mn button:not(.csel):disabled { opacity: .38; cursor: default; }
 .qnav-mn .jump-mn input.inp-mn {
   width: 62px;
   height: 30px;
@@ -3112,3 +3112,124 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .cls2.theater > .cls2-stage { max-width:none; width:100%; height:100%; overflow:auto; padding:14px 18px 16px; }
 .cls2.theater .cls2-screen { max-height:calc(100vh - 150px); }
 .cls2.theater .vtheater { opacity:1; }
+
+/* ===================== 课程主页（docs/style-A-dark.html 定稿）=====================
+   这一页回答「我在哪、下一步点哪儿」：科目抬头 + 接着学 + 章节 + 题源，
+   右栏家底 / 走完多少 / 缺什么。题目和播放都不在这里 —— 点进去才到课堂和练习。
+   数值一律照稿子：h1 42px、章节卡 9px 圆角、侧栏 288px、主色琥珀只给「当前」。 */
+.chome { padding-bottom: 40px; }
+.chome-head .kick { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: var(--tx3); text-transform: uppercase; }
+.chome-head h1 { margin-top: 12px; font-size: 42px; font-weight: 800; letter-spacing: -.04em; line-height: 1.06; }
+.chome-head h1 em { font-style: normal; color: var(--act); }
+.chome-head .facts { margin-top: 18px; display: flex; align-items: center; gap: 20px; font-size: 13px; color: var(--tx3); flex-wrap: wrap; }
+.chome-head .facts .d { display: flex; align-items: baseline; gap: 5px; }
+.chome-head .facts .d b { font-size: 17px; font-weight: 700; color: var(--tx); }
+.chome-head .facts .sep { width: 1px; height: 12px; background: var(--line2); }
+.chome-switch { display: inline-flex; gap: 4px; }
+.chome-switch .sw { height: 26px; padding: 0 9px; border-radius: 999px; background: none; border: 1px solid var(--line); color: var(--tx3); font-size: 11.5px; font-family: inherit; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; }
+.chome-switch .sw i { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.chome-switch .sw:hover { color: var(--tx2); border-color: var(--line2); }
+.chome-switch .sw.on { color: var(--tx); border-color: var(--line2); background: var(--card); }
+
+.chome-body { display: grid; grid-template-columns: minmax(0, 1fr) 288px; gap: 34px; align-items: start; padding-top: 26px; }
+.chome-hero { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; position: relative; overflow: hidden; }
+.chome-hero::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--act); }
+.chome-hero.empty::before { background: var(--line2); }
+.chome-hero .k { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: var(--act); text-transform: uppercase; }
+.chome-hero.empty .k { color: var(--tx3); }
+.chome-hero h2 { margin-top: 11px; font-size: 24px; font-weight: 700; letter-spacing: -.03em; }
+.chome-hero .meta { margin-top: 12px; display: flex; gap: 10px; flex-wrap: wrap; }
+.chome-hero .meta span { font-size: 12px; color: var(--tx2); background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; }
+.chome-hero .ft { margin-top: 18px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.cbtn { height: 38px; padding: 0 22px; border-radius: 10px; background: var(--act); color: #000; font-size: 14px; font-weight: 700; border: 0; cursor: pointer; font-family: inherit; }
+.cbtn.gh { background: transparent; color: var(--tx2); border: 1px solid var(--line2); }
+.cbtn:hover { filter: brightness(1.06); }
+.chome-hero .rt { margin-left: auto; font-size: 12px; color: var(--tx3); }
+
+.chome-sec { margin-top: 26px; display: flex; align-items: baseline; justify-content: space-between; }
+.chome-sec h3 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
+.chome-sec > span { font-size: 12px; color: var(--tx3); }
+.chome-grid { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.chome-ch { background: var(--card); border-radius: 9px; padding: 11px 14px; cursor: pointer; border: 1px solid transparent; text-align: left; font-family: inherit; }
+.chome-ch:hover { background: var(--card2); }
+.chome-ch.cur { border-color: var(--act); background: var(--card2); }
+.chome-ch .t { display: flex; align-items: baseline; justify-content: space-between; }
+.chome-ch .nm { font-size: 14px; font-weight: 600; color: var(--tx2); }
+.chome-ch.cur .nm { color: var(--act); }
+.chome-ch .n { font-size: 11px; color: var(--tx3); }
+.chome-ch .sub { margin-top: 6px; font-size: 12px; color: var(--tx3); }
+.chome-ch .bar { margin-top: 8px; height: 3px; border-radius: 2px; background: var(--line); overflow: hidden; }
+.chome-ch .bar i { display: block; height: 100%; background: var(--ok); }
+.chome-ch.cur .bar i { background: var(--act); }
+.chome-none { margin-top: 12px; font-size: 13px; line-height: 1.8; color: var(--tx3); padding: 10px 0; }
+
+.chome-src { margin-top: 10px; display: flex; flex-direction: column; gap: 2px; }
+.chome-sr { display: flex; align-items: center; gap: 14px; padding: 11px 14px; border-radius: 10px; cursor: pointer; background: none; border: 0; font-family: inherit; text-align: left; }
+.chome-sr:hover { background: var(--card); }
+.chome-sr .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.chome-sr .nm { flex: 1; font-size: 14px; color: var(--tx2); font-weight: 500; }
+.chome-sr:hover .nm { color: var(--tx); }
+.chome-sr .n { font-size: 12px; color: var(--tx3); }
+.chome-sr .go { font-size: 12px; color: var(--tx3); min-width: 44px; text-align: right; }
+.chome-sr:hover .go { color: var(--act); }
+
+.chome-side { display: flex; flex-direction: column; gap: 22px; }
+.chome-side .pan h4 { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: var(--tx3); text-transform: uppercase; margin-bottom: 16px; }
+.chome-side .rw { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; font-size: 13px; color: var(--tx3); }
+.chome-side .rw b { font-size: 14px; color: var(--tx); font-weight: 600; }
+.chome-side .rw.big b { font-size: 24px; font-weight: 800; letter-spacing: -.04em; }
+.chome-side .ring { display: flex; align-items: center; gap: 20px; margin-top: 4px; }
+.chome-side .ring .t { position: relative; width: 76px; height: 76px; display: grid; place-items: center; font-size: 17px; font-weight: 800; flex: none; }
+.chome-side .ring .t svg { position: absolute; inset: 0; transform: rotate(-90deg); }
+.chome-side .ring .lg b { display: block; font-size: 15px; font-weight: 700; }
+.chome-side .ring .lg i { display: block; font-style: normal; font-size: 12px; color: var(--tx3); margin-top: 6px; line-height: 1.7; white-space: pre-line; }
+.chome-side .miss { border-left: 2px solid var(--bad); padding-left: 14px; }
+.chome-side .miss.none { border-left-color: var(--line2); }
+.chome-side .miss h4 { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: var(--bad); text-transform: uppercase; margin-bottom: 12px; }
+.chome-side .miss.none h4 { color: var(--tx3); }
+.chome-side .miss li { list-style: none; font-size: 13px; line-height: 1.8; color: var(--tx3); padding-left: 14px; position: relative; }
+.chome-side .miss li::before { content: "·"; position: absolute; left: 0; color: var(--bad); }
+.chome-side .miss.none li::before { color: var(--tx3); }
+@media (max-width: 1100px) {
+  .chome-body { grid-template-columns: minmax(0, 1fr); }
+  .chome-grid { grid-template-columns: 1fr; }
+}
+
+/* ===== 左栏三段（docs/style-A-dark.html）：课程 / 这门课 / 全部 =====
+   .ci 是「科目」条目，.nv 是页面条目 —— 两种条目长相不同，
+   因为它们做的事不同：一个是换科目，一个是换页面。 */
+.app-mn .rail .gh { padding: 0 10px 8px; }
+.app-mn .ci {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  margin-bottom: 1px;
+  background: none;
+  border: 0;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.app-mn .ci:hover { background: var(--card); }
+.app-mn .ci.on { background: var(--card); }
+.app-mn .ci .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.app-mn .ci .nm {
+  flex: 1;
+  min-width: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: var(--tx3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-mn .ci.on .nm { color: var(--tx); font-weight: 600; }
+.app-mn .ci .pg { font-size: 11px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.app-mn .ci.on .pg { color: var(--act); }
+
+/* 课程主页自己画 42px 抬头，壳只留一条空顶栏给右上的 pill */
+.top-bare { height: 20px; min-height: 20px; }
+.content-bare { padding-top: 6px; }

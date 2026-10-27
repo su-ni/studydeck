@@ -1,44 +1,43 @@
 import { useEffect, useState } from 'react'
 import { Icon, type IconName } from './Icon'
+import { clsColor } from './V6'
 import { callTool, type Base } from '../lib/api'
 
 export type PageKey =
-  | 'today' | 'classroom' | 'courses' | 'schedule' | 'vocab'
+  | 'home' | 'today' | 'classroom' | 'courses' | 'schedule' | 'vocab'
   | 'practice' | 'exam' | 'stats' | 'writing' | 'agent' | 'canvas'
 
 export type NavItem = { k: PageKey; t: string; n: IconName; cnt?: (b: Base) => number }
 
-/* 十一个入口平铺在一列，等于没有分组 —— 用户每次都要从头扫到尾。
-   按「今天做什么 / 学什么 / 记下什么 / 配置」四层收拢，数字只留在真能数的入口上。
-   设置永远在最后：换模型、导题库、备份同步都在那一页，藏起来等于没有。 */
-export const NAVGRP: { g?: string; items: NavItem[] }[] = [
-  { items: [{ k: 'today', t: '今日', n: 'today' }] },
-  {
-    g: '学',
-    items: [
-      // 课堂是「正在学的那一讲」，不是全库总数 —— 挂 889 会和课程库撞成两个一样的数。
-      { k: 'classroom', t: '课堂', n: 'classroom' },
-      { k: 'courses', t: '课程库', n: 'courses', cnt: (b) => b.kpi?.lesson_total ?? 0 },
-      { k: 'schedule', t: '课表', n: 'schedule' },
-      { k: 'vocab', t: '背单词', n: 'vocab', cnt: (b) => b.kpi?.vocab_total ?? 0 },
-      { k: 'practice', t: '练习', n: 'practice', cnt: (b) => b.exercise_bank?.total ?? 0 },
-      { k: 'exam', t: '考场', n: 'exam', cnt: (b) => b.kpi?.exam_papers ?? 0 },
-    ],
-  },
-  {
-    g: '记',
-    items: [
-      { k: 'stats', t: '统计', n: 'stats' },
-      { k: 'writing', t: '作文', n: 'writing' },
-      { k: 'canvas', t: '画布', n: 'canvas' },
-    ],
-  },
-  { g: '设', items: [{ k: 'agent', t: '设置', n: 'agent' }] },
+/* 左栏按 docs/style-A-dark.html 定稿分三段：
+   ① 课程 —— 五门课平铺，点哪门看哪门（带科目色点和已学讲次）
+   ② 这门课 —— 课程主页 / 课堂 / 课表 / 背单词 / 练习，都跟着当前科目走
+   ③ 全部 —— 今日 / 考场 / 统计 / 作文 / 画布 / 设置
+
+   原来是「今日 / 学 / 记 / 设」四组十一个入口平铺，看不出「我在哪门课里」。
+   现在科目在左栏，点一下整站跟着换科目 —— 不用每个页面各选一次。 */
+
+const COURSE_NAV: NavItem[] = [
+  { k: 'home', t: '课程主页', n: 'courses' },
+  { k: 'classroom', t: '课堂', n: 'classroom' },
+  { k: 'schedule', t: '课表', n: 'schedule' },
+  { k: 'vocab', t: '背单词', n: 'vocab', cnt: (b) => b.kpi?.vocab_total ?? 0 },
+  { k: 'practice', t: '练习', n: 'practice', cnt: (b) => b.exercise_bank?.total ?? 0 },
 ]
 
-export const NAV: NavItem[] = NAVGRP.reduce<NavItem[]>((a, x) => a.concat(x.items), [])
+const ALL_NAV: NavItem[] = [
+  { k: 'today', t: '今日', n: 'today' },
+  { k: 'exam', t: '考场', n: 'exam', cnt: (b) => b.kpi?.exam_papers ?? 0 },
+  { k: 'stats', t: '统计', n: 'stats' },
+  { k: 'writing', t: '作文', n: 'writing' },
+  { k: 'canvas', t: '画布', n: 'canvas' },
+  { k: 'agent', t: '设置', n: 'agent' },
+]
+
+export const NAV: NavItem[] = COURSE_NAV.concat(ALL_NAV)
 
 export const TITLES: Record<PageKey, { kick: string; h1: string; sub: string }> = {
+  home: { kick: '课程', h1: '这门课', sub: '' },
   today: { kick: '今日', h1: '今天怎么排', sub: '按「断点续学 > 到期复习 > 最大错因 > 未开科目」现场算' },
   classroom: { kick: '课堂', h1: '一屏学完一讲', sub: '视频 + 讲义 + 本讲词群 + 当堂测' },
   courses: { kick: '课程库', h1: '课程 + 本地资料', sub: '进度直接读本机数据' },
@@ -52,16 +51,26 @@ export const TITLES: Record<PageKey, { kick: string; h1: string; sub: string }> 
   canvas: { kick: '画布', h1: '笔记画布', sub: '导图存在本机，可拉 XMind / Obsidian 等来源' },
 }
 
+/* 科目名太长会把左栏撑出省略号，短名留给左栏用（全名在 title 与课程主页抬头里）。 */
+function shortName(n: string) {
+  return n.replace(/基础与程序设计|程序设计|理论|高等/g, '').trim() || n
+}
+
 export function Shell({
-  page, onGo, base, children, topRight,
+  page, onGo, base, children, topRight, sid, onSid, bare,
 }: {
   page: PageKey
-  onGo: (p: PageKey) => void
+  onGo: (p: PageKey, o?: { sid?: string }) => void
   base: Base | null
   children: React.ReactNode
   topRight?: React.ReactNode
+  sid?: string
+  onSid?: (id: string) => void
+  /* bare：这一页自己画抬头（课程主页 h1 42px），壳不再多顶一条标题 */
+  bare?: boolean
 }) {
   const t = TITLES[page]
+  const subs: any[] = (base as any)?.subjects ?? []
   return (
     // 画布页把侧栏收成 56px 图标条（开发文档 3.1）：画布是「一屏都在画」，一条 236px 的
     // 常驻导航在那儿会一直抢走一条地。其它页照常展开 —— 不留给用户手动收，切页就恢复。
@@ -76,46 +85,71 @@ export function Shell({
         </div>
         <div className="rail-in">
           <nav className="nav">
-            {NAVGRP.map((grp, gi) => (
-              <div className="navgrp" key={grp.g || gi}>
-                {/* 分组标题只做路标，不占点击面积：一排小字比十一个同级入口好扫。 */}
-                {grp.g ? <div className="gh">{grp.g}</div> : null}
-                {grp.items.map((it) => (
-                  <button key={it.k} className={'nv' + (page === it.k ? ' on' : '')}
-                    /* title 平时看不见，收起成图标条时它就是 tooltip —— 图标条上只剩图标，
-                       没有名字的图标等于猜。计数跟着名字一起收，不单独留一个孤零零的数。 */
-                    title={it.t + (it.cnt && base ? ' · ' + it.cnt(base) : '')}
-                    aria-label={it.t}
-                    onPointerDown={(e) => { e.currentTarget.classList.add('press'); setTimeout(() => e.currentTarget.classList.remove('press'), 130) }}
-                    onClick={() => onGo(it.k)}>
-                    <Icon n={it.n} className="ic" size={15} />
-                    {it.t}
-                    {it.cnt && base ? <span className="cn">{it.cnt(base)}</span> : null}
+            {subs.length ? (
+              <div className="navgrp">
+                <div className="gh">课程</div>
+                {subs.map((s) => (
+                  <button key={s.id} className={'ci' + (s.id === sid ? ' on' : '')}
+                    title={s.name + ' · 已学 ' + (s.lessons_done || 0) + ' / ' + (s.lessons_total || 0) + ' 讲'}
+                    onClick={() => (onSid ? onSid(s.id) : onGo('home', { sid: s.id }))}>
+                    <span className="dot" style={{ background: clsColor(s.cls || s.accent || s.id) }} />
+                    <span className="nm">{shortName(s.name)}</span>
+                    <span className="pg">{s.lessons_done || 0}</span>
                   </button>
                 ))}
               </div>
-            ))}
+            ) : null}
+
+            <div className="navgrp">
+              <div className="gh">这门课</div>
+              {COURSE_NAV.map((it) => (
+                <button key={it.k} className={'nv' + (page === it.k ? ' on' : '')}
+                  title={it.t + (it.cnt && base ? ' · ' + it.cnt(base) : '')}
+                  aria-label={it.t}
+                  onClick={() => onGo(it.k, { sid })}>
+                  <Icon n={it.n} className="ic" size={15} />
+                  {it.t}
+                  {it.cnt && base ? <span className="cn">{it.cnt(base)}</span> : null}
+                </button>
+              ))}
+            </div>
+
+            <div className="navgrp">
+              <div className="gh">全部</div>
+              {ALL_NAV.map((it) => (
+                <button key={it.k} className={'nv' + (page === it.k ? ' on' : '')}
+                  title={it.t + (it.cnt && base ? ' · ' + it.cnt(base) : '')}
+                  aria-label={it.t}
+                  onClick={() => onGo(it.k)}>
+                  <Icon n={it.n} className="ic" size={15} />
+                  {it.t}
+                  {it.cnt && base ? <span className="cn">{it.cnt(base)}</span> : null}
+                </button>
+              ))}
+            </div>
           </nav>
         </div>
         <RailFoot onGo={onGo} base={base} />
       </aside>
       <div className="main">
-        <header className="top">
-          {/* key 一换，标题就重新进场：切页时字从下方 4px 浮上来，
-              不是整条顶栏闪一下。只动标题，不动右边那排 pill —— 那些是常驻的。 */}
-          <h2 key={page}>{t.h1}</h2>
-          <span className="nt" key={page + '-sub'}>{t.sub}</span>
-          <div className="sp">
-            {topRight}
-          </div>
-        </header>
-        <div className="content">{children}</div>
+        {!bare ? (
+          <header className="top">
+            {/* key 一换，标题就重新进场：切页时字从下方 4px 浮上来，
+                不是整条顶栏闪一下。只动标题，不动右边那排 pill —— 那些是常驻的。 */}
+            <h2 key={page}>{t.h1}</h2>
+            <span className="nt" key={page + '-sub'}>{t.sub}</span>
+            <div className="sp">{topRight}</div>
+          </header>
+        ) : (
+          <div className="top top-bare">{topRight ? <div className="sp">{topRight}</div> : null}</div>
+        )}
+        <div className={'content' + (bare ? ' content-bare' : '')}>{children}</div>
       </div>
     </div>
   )
 }
 
-function RailFoot({ onGo, base }: { onGo: (p: PageKey) => void; base: Base | null }) {
+function RailFoot({ onGo, base }: { onGo: (p: PageKey, o?: { sid?: string }) => void; base: Base | null }) {
   // 断点位置要真查，不能写死一句「还没取到」。
   const cur = useToolCur(base)
   const has = !!cur?.lesson?.title
@@ -154,7 +188,7 @@ function useToolCur(_base: Base | null) {
   const [d, setD] = useState<{ lesson?: { title?: string; chapter?: string } } | null>(null)
   const [tick, setTick] = useState(0)
   // base 换了（15 秒轮询）就重查 —— 入库刚发生，别让侧栏一直挂「还没有断点」。
-  useEffect(() => { setTick(t => t + 1) }, [_base])
+  useEffect(() => { setTick((t) => t + 1) }, [_base])
   useEffect(() => {
     let alive = true
     // 写死 subject:'english' 是通用性的漏网之鱼：空库 / 别的考试根本没有英语。

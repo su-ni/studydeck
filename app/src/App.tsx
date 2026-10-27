@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { loadBase, type Base } from './lib/api'
 import { Shell, type PageKey } from './components/Shell'
+import { CourseHome } from './pages/CourseHome'
 import { Today } from './pages/Today'
 import { Classroom } from './pages/Classroom'
 import { Courses } from './pages/Courses'
@@ -14,23 +15,29 @@ import { Agent } from './pages/Agent'
 import { Canvas } from './pages/Canvas'
 
 const KEY = 'sd_page'
+const SID_KEY = 'sd_sid'
+const PAGES: PageKey[] = ['home', 'today', 'classroom', 'courses', 'schedule', 'vocab',
+  'practice', 'exam', 'stats', 'writing', 'agent', 'canvas']
+
 function initPage(): PageKey {
   const h = (location.hash || '').replace('#', '')
-  const ok = ['today', 'classroom', 'courses', 'schedule', 'vocab', 'practice', 'exam', 'stats', 'writing', 'agent', 'canvas']
-  if (ok.indexOf(h) >= 0) return h as PageKey
+  if (PAGES.indexOf(h as PageKey) >= 0) return h as PageKey
   const s = localStorage.getItem(KEY)
-  if (s && ok.indexOf(s) >= 0) return s as PageKey
-  return 'today'
+  if (s && PAGES.indexOf(s as PageKey) >= 0) return s as PageKey
+  return 'home'
 }
 
 export function App() {
   const [base, setBase] = useState<Base | null>(null)
   const [bootErr, setBootErr] = useState<string | null>(null)
   const [page, setPage] = useState<PageKey>(initPage)
+  /* 当前科目是全局的：左栏「课程」一组、课程主页、课堂、练习都读同一个值。
+     以前每个页面自己藏一个 sid，切页就忘、还互相打架（课堂选的计算机，
+     进练习又回到英语）。 */
+  const [sid, setSid] = useState<string>(() => localStorage.getItem(SID_KEY) || '')
   /* 画布页的工具条要住进顶栏 —— 它自己那条 98px 的工具栏把舞台压掉了六分之一。
      页往上抛一个节点，壳照着渲染；切走这一页就没了（state 跟着重置），
-     不留一条属于画布的工具条挂在别的页上。
-     setState 传函数时要包一层：React 会把「传进来的函数」当更新器调，传节点本身才安全。 */
+     不留一条属于画布的工具条挂在别的页上。 */
   const [canvasTop, setCanvasTop] = useState<React.ReactNode>(null)
   /* 从别的页「带着一张图进画布」的传递口。
      以前课堂右栏的笔记卡片是个 <a href="#canvas"> —— 点了只会切到画布首页，
@@ -53,6 +60,15 @@ export function App() {
     return () => clearInterval(t)
   }, [])
 
+  /* 科目初值：地址栏没有、localStorage 也没有，就落到第一门课。
+     存过的那门课已经被删了，也落回第一门 —— 不留一个不存在的科目挂在左栏高亮。 */
+  useEffect(() => {
+    const subs: any[] = (base as any)?.subjects ?? []
+    if (!subs.length) return
+    if (!sid || !subs.some((s) => s.id === sid)) setSid(subs[0].id)
+  }, [base, sid])
+
+  useEffect(() => { localStorage.setItem(SID_KEY, sid) }, [sid])
   useEffect(() => {
     location.hash = page
     localStorage.setItem(KEY, page)
@@ -64,6 +80,13 @@ export function App() {
     window.addEventListener('hashchange', onHash)
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
+
+  /* 带科目的跳转：点章节 → pick_lesson + 进课堂，课堂要知道是哪门课，
+     否则它按自己的默认科目取断点，跳到别的课上去。 */
+  const go = (p: PageKey, o?: { sid?: string }) => {
+    if (o?.sid && o.sid !== sid) setSid(o.sid)
+    setPage(p)
+  }
 
   if (bootErr) {
     return (
@@ -77,11 +100,14 @@ export function App() {
   if (!base) return <div style={{ padding: 40 }} className="muted">正在读本机数据…</div>
 
   return (
-    <Shell page={page} onGo={setPage} base={base} topRight={page === 'canvas' ? canvasTop : undefined}>
-      <div key={page} className={"pagein" + (page === 'vocab' || page === 'today' || page === 'canvas' ? ' pagein-fill' : '')}>
-        {page === 'today' && <Today base={base} go={setPage} />}
-        {page === 'classroom' && <Classroom base={base} goCanvas={goCanvas} />}
-        {page === 'courses' && <Courses base={base} go={setPage} />}
+    <Shell page={page} onGo={go} base={base} sid={sid} onSid={(id) => { setSid(id); setPage('home') }}
+      bare={page === 'home'}
+      topRight={page === 'canvas' ? canvasTop : undefined}>
+      <div key={page} className={"pagein" + (page === 'vocab' || page === 'today' || page === 'canvas' || page === 'home' ? ' pagein-fill' : '')}>
+        {page === 'home' && <CourseHome base={base} sid={sid} onGo={go} />}
+        {page === 'today' && <Today base={base} go={go} />}
+        {page === 'classroom' && <Classroom base={base} goCanvas={goCanvas} initSid={sid} />}
+        {page === 'courses' && <Courses base={base} go={go} />}
         {page === 'schedule' && <Schedule base={base} />}
         {page === 'vocab' && <Vocab base={base} />}
         {page === 'practice' && <Practice base={base} />}
