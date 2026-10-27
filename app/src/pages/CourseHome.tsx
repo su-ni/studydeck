@@ -107,6 +107,7 @@ export function CourseHome({ base, sid, onGo }: {
   return (
     <section className="chome">
       <header className="chome-head">
+        <div className="chome-headmain">
         <div className="kick">{score >= 200 ? '专业综合课' : '公共课'} · {score ? score + ' 分' : '不计分'}</div>
         <h1>{nmA}{nmB ? <em>{nmB}</em> : null}</h1>
         <div className="facts">
@@ -114,6 +115,22 @@ export function CourseHome({ base, sid, onGo }: {
           <div className="d"><b>{hours ? hours.toFixed(1) : '—'}</b>小时</div><span className="sep" />
           <div className="d"><b>{done}</b>讲已学</div><span className="sep" />
           <div className="d"><b>{pct ? (pct < 1 ? pct.toFixed(1) : Math.round(pct)) : 0}</b>%</div>
+        </div>
+        </div>
+        {/* 这门课的五个视图（照 style-C-cover.html 的分段胶囊）：
+            课程主页 / 课堂 / 课表 / 背单词 / 练习。
+            它跟左栏目的相同，但它是「从这门课出发」的入口 —— 看完总览直接进下一步，
+            不用把视线挪回左边再找一次。左栏仍是全局导航，两处不互为替代。 */}
+        <div className="chome-tabs" role="tablist" aria-label="这门课的视图">
+          <button role="tab" aria-selected="true" className="on">课程主页</button>
+          <button role="tab" aria-selected="false" onClick={() => onGo('classroom', { sid: realId })}>
+            课堂{curLesson ? <em>本讲</em> : null}
+          </button>
+          <button role="tab" aria-selected="false" onClick={() => onGo('schedule', { sid: realId })}>课表</button>
+          <button role="tab" aria-selected="false" onClick={() => onGo('vocab', { sid: realId })}>背单词</button>
+          <button role="tab" aria-selected="false" onClick={() => onGo('practice', { sid: realId })}>
+            练习{srcTotal ? <em>{srcTotal}</em> : null}
+          </button>
         </div>
       </header>
 
@@ -151,7 +168,7 @@ export function CourseHome({ base, sid, onGo }: {
             <span>{total} 讲 · {hours ? hours.toFixed(1) : '—'} 小时</span>
           </div>
           {groups.length ? (
-            <div className="chome-grid">
+            <div className="chome-chs">
               {groups.map((g) => {
                 const ls = g.lessons || []
                 const dn = ls.filter((l) => l.done).length
@@ -159,11 +176,12 @@ export function CourseHome({ base, sid, onGo }: {
                 const p = ls.length ? (dn / ls.length) * 100 : 0
                 const on = (g.lessons || []).some((l) => l.id === curLesson?.id)
                 return (
-                  <button key={g.chapter} className={'chome-ch' + (on ? ' cur' : '')} onClick={() => openChap(g)}
+                  <button key={g.chapter} className={'chome-cr' + (on ? ' on' : '')} onClick={() => openChap(g)}
                     title={'进这一章：' + g.chapter}>
-                    <div className="t"><span className="nm">{g.chapter}</span><span className="n">{ls.length} 讲</span></div>
-                    <div className="sub">{mins ? mins + ' 分钟' : '时长未记'}{dn ? ' · 已学 ' + dn : ''}{on ? ' · 正在学' : ''}</div>
-                    <div className="bar"><i style={{ width: p + '%' }} /></div>
+                    <span className="ix">{g.chapter}</span>
+                    <span className="b"><i style={{ width: p + '%' }} /></span>
+                    <span className="n">{dn}/{ls.length}</span>
+                    <span className="t">{mins ? mins + ' 分' : '—'}</span>
                   </button>
                 )
               })}

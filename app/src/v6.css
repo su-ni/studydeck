@@ -3250,3 +3250,80 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 /* 块可点：48 个块以前一个都点不动 */
 .blk-mn.blk-clk { cursor: pointer; transition: border-color .14s, background .14s; }
 .blk-mn.blk-clk:hover { background: var(--card3); }
+
+/* ===== 课程主页的「视图胶囊」（照 docs/style-C-cover.html 的 .vt）=====
+   形态是分段控制器而不是下划线 tab：深色界面里下划线太弱，
+   胶囊靠一层 card3 的提亮就够；选中项不抢琥珀 —— 琥珀留给「该点的按钮」。
+   计数（本讲 / 题数）做成 em 小字，扫一眼知道里面有多少东西。 */
+.chome-head { display: flex; align-items: flex-start; gap: 28px; }
+.chome-headmain { min-width: 0; }
+.chome-tabs {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--card);
+  border-radius: 9px;
+  align-self: flex-start;
+  margin-top: 4px;
+}
+.chome-tabs button {
+  height: 27px;
+  padding: 0 15px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--tx3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
+.chome-tabs button:hover { color: var(--tx2); }
+.chome-tabs button.on { background: var(--card3); color: var(--tx); font-weight: 700; }
+.chome-tabs button em { font-style: normal; font-size: 10px; opacity: .6; font-variant-numeric: tabular-nums; }
+
+/* ===== 章节：一行一章（C 稿的 .cr）=====
+   两列卡片一屏只能看六章，11 章要滚两次；横排行一屏看完，
+   而且每行都能带「学了几讲 / 这一章多少分钟」—— 密度高但不挤。 */
+.chome-chs { margin-top: 10px; display: flex; flex-direction: column; gap: 1px; }
+.chome-cr {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 0;
+  background: none;
+  font-family: inherit;
+  cursor: pointer;
+  text-align: left;
+  position: relative;
+}
+.chome-cr:hover { background: var(--card); }
+.chome-cr.on { background: var(--card2); }
+.chome-cr.on::before {
+  content: "";
+  position: absolute;
+  left: 0; top: 7px; bottom: 7px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--act);
+}
+.chome-cr .ix { width: 62px; flex: none; font-size: 12.5px; font-weight: 650; color: var(--tx2); }
+.chome-cr.on .ix { color: var(--act); }
+.chome-cr .b { flex: 1; height: 3px; border-radius: 2px; background: var(--card3); overflow: hidden; }
+.chome-cr .b i { display: block; height: 100%; background: var(--ok); }
+.chome-cr.on .b i { background: var(--act); }
+.chome-cr .n { width: 46px; flex: none; text-align: right; font-size: 11px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.chome-cr .t { width: 54px; flex: none; text-align: right; font-size: 11px; color: var(--tx3); font-variant-numeric: tabular-nums; opacity: .72; }
+
+@media (max-width: 1100px) {
+  .chome-head { flex-direction: column; }
+  .chome-tabs { margin-left: 0; }
+}
