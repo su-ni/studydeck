@@ -477,6 +477,17 @@
   animation: vbufspin .7s linear infinite;
 }
 @keyframes vbufspin { to { transform: rotate(360deg); } }
+/* 「备好这一章」的回执：一整句话，单独占一行。
+   塞回按钮行里会被压成一行 11px 小字，人根本不会读 —— 那就不算回执。 */
+.warmmsg {
+  display: flex; align-items: flex-start; gap: 7px;
+  margin: -4px 0 12px; padding: 0;
+  font-size: 12px; color: var(--tx2); line-height: 1.7;
+}
+.warmmsg::before {
+  content: ""; width: 5px; height: 5px; border-radius: 50%;
+  background: var(--act); flex: none; margin-top: 7px;
+}
 /* 16:9 的黑框在没有视频时是一整块黑洞（宽 1000 就 560 高）。
    空态要把话说清楚，而不是中间飘一行小字。 */
 .cls2-screen .vscreen-empty {
@@ -1121,3 +1132,55 @@
 .u-excover .ft { padding-top: 8px; font-size: 11px; color: var(--tx3); line-height: 1.75; }
 .u-excover .u-meter-row { padding: 2px 0; }
 
+
+/* 画质下拉：视频右上角常显。
+   它是「现在是什么档」而不是「点一下干什么」，所以不做成 hover 才出现的按钮 ——
+   想换画质的时候还得先在画面里找那个小东西，找不到就以为没有。 */
+.vqsel { position: absolute; right: 8px; top: 8px; z-index: 6; }
+.vqsel .csel {
+  height: 30px; min-width: 84px; padding: 0 8px;
+  background: rgba(12, 10, 8, .74); border-color: rgba(255, 255, 255, .18);
+  color: rgba(255, 255, 255, .84); backdrop-filter: blur(4px);
+}
+.vqsel .csel:hover { color: #fff; border-color: rgba(255, 255, 255, .3); }
+.cls2-theater .vqsel { right: 14px; top: 14px; }
+
+/* ===== 影院模式：真的铺满 =====
+   以前这个按钮只换了自己的图标 —— theater 状态改了，页面上什么都没发生
+   （.cls2-theater 这个类从来没挂到元素上）。人点了以为全屏了，其实还在三栏里。
+   这里把整块舞台提成顶层，除了播放器全藏掉。
+   不用浏览器原生全屏：原生全屏里只有 <video> 在 top layer，
+   截图回执、画质下拉这些盖在视频上的东西一个都画不出来 —— 而截帧恰恰要在放大时用。 */
+.cls2-stage.cls2-theater {
+  position: fixed; inset: 0; z-index: 85;
+  background: #000; overflow: hidden; padding: 0;
+}
+.cls2-stage.cls2-theater > *:not(.cls2-screen) { display: none !important; }
+.cls2-theater .cls2-screen {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  aspect-ratio: auto; border: 0; border-radius: 0;
+}
+.cls2-theater .cls2-screen video { height: 100%; }
+
+/* 截帧回执：画在视频上，不画在工具栏里。
+   影院模式下工具栏被视频整块盖住 —— 回执放那儿，按了 S 就跟没按一样。 */
+.cls2-screen .vshot {
+  position: absolute; left: 12px; bottom: 12px; z-index: 7;
+  max-width: calc(100% - 108px);
+  padding: 7px 12px; border-radius: 999px;
+  background: rgba(10, 8, 6, .86); border: 1px solid var(--line2);
+  font-size: 11.5px; color: var(--tx2);
+  backdrop-filter: blur(6px);
+}
+/* 合流提示和回执都在左下角，撞上了就把回执抬起来一层 */
+.cls2-screen:has(.vbuf) .vshot { bottom: 52px; }
+
+.vtheater-exit {
+  position: absolute; right: 10px; bottom: 10px; z-index: 8;
+  display: inline-flex; align-items: center; gap: 6px;
+  height: 28px; padding: 0 11px; border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, .18); background: rgba(12, 10, 8, .74);
+  color: rgba(255, 255, 255, .8); font-size: 12px; font-family: inherit;
+  cursor: pointer; backdrop-filter: blur(4px);
+}
+.vtheater-exit:hover { background: rgba(255, 176, 32, .92); color: #1A1000; border-color: rgba(255, 176, 32, .92); }

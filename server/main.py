@@ -22,11 +22,11 @@ from fastapi.staticfiles import StaticFiles
 
 if __package__ in (None, ""):                       # 允许 python server/main.py 直接跑
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from server import (agent, bili, config, context, datahub, notesrc, perm, platform_ai,
-                        store, tools, xmind)
+    from server import (agent, asr, bili, config, context, datahub, notesrc, perm, platform_ai,
+                        store, streamer, tools, xmind)
 else:
-    from . import (agent, bili, config, context, datahub, notesrc, perm, platform_ai,
-                   store, tools, xmind)
+    from . import (agent, asr, bili, config, context, datahub, notesrc, perm, platform_ai,
+                   store, streamer, tools, xmind)
 
 app = FastAPI(title="研学台 StudyDeck")
 
@@ -39,6 +39,37 @@ def health():
     return {"ok": True, "db": config.DB_PATH, "proto": config.PROTO_DATA,
             "proto_exists": os.path.exists(config.PROTO_DATA),
             "generated_at": store.now()}
+
+
+# ---------------------------------------------------------------------------
+# 语音转文字
+# 模型不进启动路径：这三个接口是唯一入口，没人调 → 一个字节都不加载。
+# 音频走原始 body，不经 JSON —— base64 会让 5 分钟录音多撑三分之一体积。
+# ---------------------------------------------------------------------------
+@app.get("/api/asr/status")
+def api_asr_status():
+    return asr.status()
+
+
+@app.post("/api/asr/setup")
+def api_asr_setup(req: dict | None = None):
+    force = bool((req or {}).get("force"))
+    return asr.setup_async(force=force)
+
+
+@app.post("/api/asr/unload")
+def api_asr_unload():
+    asr.unload()
+    return {"ok": True, "say": "语音模型已从内存放掉"}
+
+
+@app.post("/api/asr/transcribe")
+async def api_asr_transcribe(request: Request):
+    data = await request.body()
+    if len(data) > 40 * 1024 * 1024:
+        raise HTTPException(413, "音频太大（上限 40MB）")
+    r = asr.transcribe(data, request.headers.get("content-type", ""))
+    return r
 
 
 @app.get("/api/base")
@@ -609,107 +640,17 @@ _UP_HEADERS = {"Referer": "https://www.bilibili.com/",
                "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                               "AppleWebKit/537.36 (KHTML, like Gecko) "
                               "Chrome/120.0.0.0 Safari/537.36")}
-_STREAM_DIR = os.path.join(config.APP_DATA_DIR, "stream")
-
-
-def _stream_ready(lesson_id, q):
-    """合流好的 mp4 在哪、有多大。没有就 None。"""
-    p = os.path.join(_STREAM_DIR, "%s.q%s.mp4" % (lesson_id, q))
-    if os.path.exists(p) and os.path.getsize(p) > 10240:
-        return p, os.path.getsize(p)
-    return None, 0
-
-
-def _fetch_track(url, dest):
-    """把一条轨拉成本地 m4s。已经下过就跳过。"""
-    if os.path.exists(dest) and os.path.getsize(dest) > 1024:
-        return dest
-    tmp = dest + ".part"
-    req = urllib.request.Request(url, headers=_UP_HEADERS)
-    with urllib.request.urlopen(req, timeout=30) as r, open(tmp, "wb") as f:
-        while True:
-            chunk = r.read(262144)
-            if not chunk:
-                break
-            f.write(chunk)
-    os.replace(tmp, dest)
-    return dest
-
-
-def _trim_stream_cache(keep_path, limit_gb=20.0):
-    """合流缓存按总大小清理，最老的先走。
-
-    一讲约 30MB~300MB，一节 900 讲的课能吃掉几十 GB —— 不设上限，
-    用户磁盘迟早被悄无声息地塞满。默认 20GB，改 SD_STREAM_GB 可调。
-    """
-    try:
-        files = []
-        for n in os.listdir(_STREAM_DIR):
-            if not n.endswith(".mp4"):
-                continue
-            p = os.path.join(_STREAM_DIR, n)
-            try:
-                files.append((os.path.getmtime(p), os.path.getsize(p), p))
-            except OSError:
-                continue
-        total = sum(x[1] for x in files)
-        cap = limit_gb * 1024 ** 3
-        if total <= cap:
-            return 0
-        files.sort()
-        freed = 0
-        for _, sz, p in files:
-            if total - freed <= cap * 0.8:      # 一次清到八成就停，不反复清
-                break
-            if os.path.abspath(p) == os.path.abspath(keep_path):
-                continue
-            try:
-                os.remove(p)
-                freed += sz
-            except OSError:
-                pass
-        return freed
-    except Exception:
-        return 0
-
-
-def _build_stream(lesson_id, q, video, audio):
-    """两条轨 → 一个能拖的 mp4。同步做，几十秒内完成（一讲约 900MB/30 秒）。
-
-    同一讲同一画质只做一次；之后再打开直接吃缓存。
-    """
-    os.makedirs(_STREAM_DIR, exist_ok=True)
-    vp = _fetch_track(video, os.path.join(_STREAM_DIR, "%s.q%s.v.m4s" % (lesson_id, q)))
-    ap = _fetch_track(audio, os.path.join(_STREAM_DIR, "%s.q%s.a.m4s" % (lesson_id, q))) if audio else None
-    out = os.path.join(_STREAM_DIR, "%s.q%s.mp4" % (lesson_id, q))
-    tmp = out + ".part"
-    cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", vp]
-    if ap:
-        cmd += ["-i", ap, "-map", "0:v:0", "-map", "1:a:0"]
-    else:
-        cmd += ["-map", "0:v:0"]
-    # faststart：moov 前置，浏览器拿到头就能拖，不用先下完
-    # 显式指定容器：临时文件叫 .part，ffmpeg 认不出扩展名
-    cmd += ["-c", "copy", "-f", "mp4", "-movflags", "+faststart", tmp]
-    r = subprocess.run(cmd, capture_output=True, timeout=600)
-    if r.returncode != 0 or not os.path.exists(tmp):
-        raise RuntimeError((r.stderr or b"").decode("utf-8", "replace")[:200] or "ffmpeg 合流失败")
-    os.replace(tmp, out)
-    # 轨文件占地方，合完就删 —— 留 mp4 一份就够
-    for f in (vp, ap):
-        try:
-            if f and os.path.exists(f):
-                os.remove(f)
-        except Exception:
-            pass
-    # 清到 20GB 以内（正在播的这一份不动）
-    _trim_stream_cache(out, float(os.environ.get("SD_STREAM_GB", "20")))
-    return out
+# 合流 / 缓存 / 预热队列都在 server/streamer.py：这里只管 HTTP 这一层。
+# 以前「点播放才开始合」是本文件的一部分，现在合流能提前在后台跑，
+# 逻辑挪走之后这一层只剩「有缓存就发、没有就合、合完发」。
 
 
 @app.get("/stream/{lesson_id}")
-async def stream_lesson(lesson_id: str, request: Request, q: int = 64):
-    """本讲的播放文件。local 直接跳 /media；dash 先合流再当本地文件发。"""
+async def stream_lesson(lesson_id: str, request: Request, q: int = 0):
+    """本讲的播放文件。local 直接跳 /media；dash 先合流再当本地文件发。
+
+    q 不传就跟用户在设置里选的那一档（play.qn）；都没有才 720P。
+    """
     sub, les, bvid, pg = tools._lesson_point(lesson_id)
     if not les:
         raise HTTPException(status_code=404, detail="本机没有这一讲：%s" % lesson_id)
@@ -718,15 +659,9 @@ async def stream_lesson(lesson_id: str, request: Request, q: int = 64):
     if not bvid:
         raise HTTPException(status_code=404, detail="这一讲没记 B 站号，播不了")
 
-    qq = int(q or 64)
+    qq = int(q or 0) or int(store.kv_get("play.qn") or 0) or 64
     # 缓存里降级找：1080 没合过但 480 合过，就别再合一遍
-    path, size = _stream_ready(lesson_id, qq)
-    if not path:
-        for alt in (64, 32, 16):
-            path, size = _stream_ready(lesson_id, alt)
-            if path:
-                qq = alt
-                break
+    path, size, qq = streamer.ready_any(lesson_id, qq)
 
     if not path:
         pgs, err = bili.pages(bvid)
@@ -770,14 +705,22 @@ async def stream_lesson(lesson_id: str, request: Request, q: int = 64):
             raise HTTPException(status_code=501,
                                 detail="这台机器上没有 ffmpeg（找的是 %s）—— dash 合流做不了，"
                                        "设 SD_FFMPEG 指一下" % FFMPEG)
+        # 合流走 streamer.ensure：同一讲有锁 —— 后台正在合这一讲时这里等它做完，
+        # 不会再下一次、也不会两个 ffmpeg 抢着写同一个临时文件。
         try:
             path = await asyncio.get_event_loop().run_in_executor(
-                None, _build_stream, lesson_id, tr.get("quality") or qq,
-                tr["video"], tr.get("audio"))
+                None, streamer.ensure, lesson_id, tr.get("quality") or qq, tr)
         except Exception as e:
             raise HTTPException(status_code=502, detail="合流失败：%s" % str(e)[:160])
+        if not path:
+            raise HTTPException(status_code=502, detail="这一讲合不出能播的文件")
         size = os.path.getsize(path)
 
+    # 播放即「这条还在用」：缓存满了按 mtime 清最老的，正在看的不能被清。
+    try:
+        os.utime(path)
+    except OSError:
+        pass
     return _send_range(path, size, request)
 
 

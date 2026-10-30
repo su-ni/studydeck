@@ -3160,9 +3160,19 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .cbtn:hover { filter: brightness(1.06); }
 .chome-hero .rt { margin-left: auto; font-size: 12px; color: var(--tx3); }
 
-.chome-sec { margin-top: 26px; display: flex; align-items: baseline; justify-content: space-between; }
-.chome-sec h3 { font-size: 17px; font-weight: 700; letter-spacing: -.01em; }
-.chome-sec > span { font-size: 12px; color: var(--tx3); }
+/* 分区框：接着学、章节、题源、右栏三块 —— 全是同一规格的亮面。
+   没有框的时候这几块跟页底融成一片灰字，一屏看下去找不到边界，
+   人会以为「下面这些是同一段说明」。框的作用是分区，不是装饰：
+   var(--card) 底 + 1px 边 + 14px 圆角 + 同一档内边距，四块尺寸一致。 */
+.chome-pan { margin-top: 14px; background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 15px 20px 12px; }
+.chome-pan-h { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 2px; }
+.chome-pan-h h3 { font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--tx); }
+.chome-pan-h > span { font-size: 12px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.chome-pan .chome-chs, .chome-pan .chome-src { margin-top: 8px; }
+/* 行悬停用 card2：卡内底色已经是 card，再用 card 悬停等于没反应 */
+.chome-pan .chome-cr:hover, .chome-pan .chome-sr:hover { background: var(--card2); }
+.chome-pan .chome-cr.on { background: var(--card3); }
+.chome-pan .chome-none { margin-top: 8px; padding: 4px 0 6px; }
 .chome-grid { margin-top: 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .chome-ch { background: var(--card); border-radius: 9px; padding: 11px 14px; cursor: pointer; border: 1px solid transparent; text-align: left; font-family: inherit; }
 .chome-ch:hover { background: var(--card2); }
@@ -3187,7 +3197,10 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .chome-sr .go { font-size: 12px; color: var(--tx3); min-width: 44px; text-align: right; }
 .chome-sr:hover .go { color: var(--act); }
 
-.chome-side { display: flex; flex-direction: column; gap: 22px; }
+/* 右栏三块也各成一个框。原来只有一行小标题 + 一堆行，飘在黑底上；
+   跟左边比起来像没画完。框一到，家底 / 进度 / 缺什么是三件独立的事。 */
+.chome-side { display: flex; flex-direction: column; gap: 14px; }
+.chome-side .pan { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 16px 18px; }
 .chome-side .pan h4 { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: var(--tx3); text-transform: uppercase; margin-bottom: 16px; }
 .chome-side .rw { display: flex; justify-content: space-between; align-items: baseline; padding: 7px 0; font-size: 13px; color: var(--tx3); }
 .chome-side .rw b { font-size: 14px; color: var(--tx); font-weight: 600; }
@@ -3197,13 +3210,45 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .chome-side .ring .t svg { position: absolute; inset: 0; transform: rotate(-90deg); }
 .chome-side .ring .lg b { display: block; font-size: 15px; font-weight: 700; }
 .chome-side .ring .lg i { display: block; font-style: normal; font-size: 12px; color: var(--tx3); margin-top: 6px; line-height: 1.7; white-space: pre-line; }
-.chome-side .miss { border-left: 2px solid var(--bad); padding-left: 14px; }
+/* 「缺什么」是唯一带红边的框：左边 2px 朱红是这一块的语言 —— 它不是又一个面板，
+   是这张页上要动手的那件事。没有缺口时退回普通边框，不喊狼来了。 */
+.chome-side .miss { background: var(--card); border: 1px solid var(--line); border-left: 2px solid var(--bad); border-radius: 14px; padding: 16px 18px; }
 .chome-side .miss.none { border-left-color: var(--line2); }
 .chome-side .miss h4 { font-size: 11px; letter-spacing: .12em; font-weight: 600; color: var(--bad); text-transform: uppercase; margin-bottom: 12px; }
 .chome-side .miss.none h4 { color: var(--tx3); }
 .chome-side .miss li { list-style: none; font-size: 13px; line-height: 1.8; color: var(--tx3); padding-left: 14px; position: relative; }
 .chome-side .miss li::before { content: "·"; position: absolute; left: 0; color: var(--bad); }
 .chome-side .miss.none li::before { color: var(--tx3); }
+/* 「后面还有 N 讲在合」——这句话必须自己占一行，跟数值挤在一行会被当成另一个数 */
+.chome-side .rw { flex-wrap: wrap; }
+.chome-side .rw .warm { flex-basis: 100%; font-style: normal; font-size: 11px; color: var(--act); margin-top: 2px; }
+
+/* ===== B 站账号（扫码）=====
+   没登录只有 480P，登录才有 1080P —— 这件事以前只在助手的回答里，界面上既看不到也没地方点。
+   现在是一行状态 + 一颗按钮；二维码用官方扫码接口的 URL 现画成 SVG，不放位图
+   （位图在这个尺寸会糊，手机扫不出来）。 */
+.blrow { display: flex; align-items: center; gap: 10px; margin-top: 10px; padding-top: 12px; border-top: 1px solid var(--line); }
+/* 谁 + 什么档：两行，中间那列可以省略号收缩。挤成一行在 288px 侧栏里必然竖排。 */
+.blrow .who { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.blrow .who b { font-size: 13px; font-weight: 600; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.blrow .who i { font-style: normal; font-size: 11px; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.blrow > .pbtn-mn { flex: none; }
+/* 头像是登录的唯一可信证据：26px 圆，不描边不发光，跟文字一个高度 */
+.blrow .av { width: 26px; height: 26px; border-radius: 50%; flex: none; object-fit: cover; background: var(--card3); }
+
+.blqr-scrim { position: fixed; inset: 0; z-index: 90; background: rgba(0, 0, 0, .66); display: grid; place-items: center; padding: 20px; }
+.blqr { width: 320px; max-width: 100%; background: var(--card); border: 1px solid var(--line2); border-radius: 16px; padding: 18px 20px 16px; box-shadow: 0 24px 64px rgba(0, 0, 0, .62); }
+.blqr-hd { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.blqr-hd b { font-size: 15px; font-weight: 700; }
+.blqr-sub { margin: 8px 0 14px; font-size: 12px; color: var(--tx3); line-height: 1.7; }
+.blqr-img { width: 220px; height: 220px; margin: 0 auto; display: grid; place-items: center; background: #fff; border-radius: 12px; }
+.blqr-img img { display: block; }
+.blqr-wait { font-size: 12px; color: #666; }
+.blqr-ok { width: 220px; height: 220px; margin: 0 auto; display: grid; place-items: center; color: var(--ok); background: var(--card2); border-radius: 12px; }
+.blqr-msg { min-height: 36px; margin-top: 12px; font-size: 12px; color: var(--tx2); line-height: 1.65; }
+.blqr-ft { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-top: 4px; }
+.blqr-link { font-size: 12px; color: var(--tx3); text-decoration: underline; }
+.blqr-link:hover { color: var(--tx2); }
 @media (max-width: 1100px) {
   .chome-body { grid-template-columns: minmax(0, 1fr); }
   .chome-grid { grid-template-columns: 1fr; }
@@ -3726,3 +3771,52 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
    一张卡只有「词 + 音标 + 两条例句」时，底对齐会留出半屏空洞；
    垂直居中之后它就是一张卡片，而不是一屏没写完的表格。 */
 .vx-learn-body.vx-center { justify-content: center; padding-bottom: 0; }
+
+/* 设置页·B 站账号：复用 BiliLogin 那一行，去掉它自带的上分隔线
+   （上面已经有 set-group 的分组线了，两条会叠成一道粗线） */
+.set-account .blrow { border-top: 0; margin-top: 0; padding-top: 0; }
+.set-account .blrow .k { display: none; }
+
+/* 语音模型安装进度：按已落盘字节算，不是「假装转到 90% 卡住」那种 */
+.asr-prog {
+  height: 4px; margin: 2px 0 8px;
+  background: var(--card3); border-radius: 2px; overflow: hidden;
+}
+.asr-prog i {
+  display: block; height: 100%;
+  background: var(--act); border-radius: 2px;
+  transition: width .35s var(--ease, ease);
+}
+
+/* ===== 截图库 =====
+   一屏能看多少张：四列。卡片是「可点的图 + 三行字」，不是装饰盒子 ——
+   图本身就是内容，边框只负责把相邻两张分开。 */
+.shots-filter { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 0 0 16px; }
+.shots-n { font-size: 12px; color: var(--tx3); font-variant-numeric: tabular-nums; margin-left: auto; white-space: nowrap; }
+.shots-msg { font-size: 12px; color: var(--tx2); padding: 0 0 12px; }
+.shots-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(224px, 1fr)); gap: 14px; }
+
+.shot-c { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
+.shot-c:hover { border-color: var(--line2); }
+.shot-img { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; }
+.shot-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
+/* 秒数徽标：截帧的价值一半在「这是第几分钟」，不写就只是一张图 */
+.shot-img .t {
+  position: absolute; right: 7px; bottom: 7px;
+  padding: 2px 7px; border-radius: 6px;
+  background: rgba(10, 8, 6, .8); color: var(--tx2);
+  font-size: 11px; font-variant-numeric: tabular-nums;
+}
+.shot-b { padding: 10px 12px 11px; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.shot-b b { font-size: 13px; font-weight: 600; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shot-b i { font-style: normal; font-size: 11.5px; color: var(--tx3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.shot-foot { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 3px; }
+.shot-foot em { font-style: normal; font-size: 11px; color: var(--tx3); }
+.shot-del {
+  display: inline-flex; align-items: center; justify-content: center;
+  height: 24px; min-width: 24px; padding: 0 6px;
+  border-radius: 6px; border: 1px solid transparent; background: none;
+  color: var(--tx3); font-size: 11px; font-family: inherit; cursor: pointer;
+}
+.shot-del:hover { color: var(--bad); border-color: rgba(255, 107, 74, .34); background: rgba(255, 107, 74, .08); }
+.shot-del.on { color: var(--bad); border-color: rgba(255, 107, 74, .5); background: rgba(255, 107, 74, .14); }

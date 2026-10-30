@@ -17,9 +17,9 @@ import threading
 import time
 import uuid
 
-from . import (agent, bcz, bili, config, context, datahub, decider, evidence, explain,
+from . import (agent, asr, bcz, bili, config, context, datahub, decider, evidence, explain,
                intake, intent, kb, model_router, notesrc, perm, planner, platform_ai,
-               store, websearch, writing, xmind)
+               store, streamer, websearch, writing, xmind)
 
 REGISTRY = {}
 
@@ -66,6 +66,7 @@ _WRITE_TOOLS = frozenset([
     "pick_word_mode", "plan_today", "rate_explain", "save_note", "session_archive",
     "session_new", "shot_del", "shot_rename", "shot_save", "shot_tag", "star_word",
     "fav_sentence", "submit_exam", "tag_error", "writing_grade", "ai_login",
+    "stream_prefetch", "bili_sync", "play_quality", "bili_progress_sync",
     "bili_login_poll",
     # 拉词书会往 data/vocab_extra.json 加一本真词书（不登记就等于可以空口说"拉进来了"）
     "vocab_pull",
@@ -75,6 +76,8 @@ _WRITE_TOOLS = frozenset([
     "paper_pull", "quiz_gen", "paper_drop", "paper_make",
     # 建索引会往 study.db 的 kb_item 表写向量（force=True 时先把整表清掉）
     "kb_build",
+    # 装语音模型会往 data/asr/models 落 140MB 文件
+    "asr_setup",
 ])
 
 
@@ -278,6 +281,46 @@ def t_pick_lesson(lesson_id=None, subject=None, **_):
             "content": datahub.lesson_content(lesson_id)}
 
 
+_BILI_UP = {}
+
+
+def _bili_push_quiet(lesson_id, pos_sec):
+    """顺手把这一讲的进度报给 B 站。节流 5 分钟、后台线程、全程吞异常。
+
+    为什么塞在 log_playback 里而不是让前端多调一个工具：播放器每 15 秒打一次点，
+    再把「上报」挂上去，等于让播放等网络 —— 网一慢画面就抖。
+    节流也不是为了省流量：B 站网页自己是几十秒一次，我们 5 分钟一次，
+    只保证「打开 B 站历史能看到进度」，不做逐秒同步。
+    """
+    try:
+        if not _sync_on():
+            return
+        now = time.time()
+        if now - _BILI_UP.get(lesson_id, 0) < 300:
+            return
+        _BILI_UP[lesson_id] = now
+        ck = _bili_cookie()
+        if not ck:
+            return
+        sub, les, bvid, pg = _lesson_point(lesson_id)
+        if not les or not bvid:
+            return
+        p = int(float(pos_sec or 0))
+
+        def run():
+            try:
+                cid, err = bili.cid_of(bvid, pg)
+                if err:
+                    return
+                bili.report_progress(bvid, cid, p, ck)
+            except Exception:
+                pass
+
+        threading.Thread(target=run, daemon=True).start()
+    except Exception:
+        pass
+
+
 @tool("log_playback", config.PERM_LOCAL, "上报播放位置与本段实看秒数（真实计时，不是视频长度）")
 def t_log_playback(lesson_id=None, pos_sec=0, seconds=0, **_):
     if not lesson_id:
@@ -286,6 +329,10 @@ def t_log_playback(lesson_id=None, pos_sec=0, seconds=0, **_):
     sec = max(0.0, round(float(seconds or 0), 1))
     store.add_event("play", lesson_id=lesson_id, seconds=sec,
                     payload="pos=%.0f" % float(pos_sec or 0))
+    # 这一下同时告诉两件事：① 人还在看（后台预热不要停跑）；
+    # ② 如果登录了 B 站，顺手把进度报过去，让「在 B 站历史里」也对得上。
+    streamer.mark_active(lesson_id)
+    _bili_push_quiet(lesson_id, pos_sec)
     return {"progress": rec, "seconds": sec,
             "say": "记了 %.1f 秒播放（停在 %d:%02d）。这条会计进真实投入时长。" % (
                 sec, int(float(pos_sec or 0)) // 60, int(float(pos_sec or 0)) % 60),
@@ -5623,12 +5670,31 @@ def t_lesson_stream(lesson_id=None, qn=None, **_):
             "note": "直链约 2 小时过期，播放器每次打开会重新取"}
 
 
-@tool("bili_login_qr", config.PERM_NET, "取一张 B 站登录二维码")
+def _qr_svg(url):
+    """二维码画成 SVG data URL。
+
+    用 SVG 不用 PNG：二维码要正对屏幕给人扫，放多大都得清楚；
+    位图在 220px 的框里糊一半，手机就认不出来了。
+    画不出来就回 None —— 前端会退成「自己点开链接」，不装没事。
+    """
+    try:
+        import base64
+        import qrcode
+        from qrcode.image.svg import SvgPathImage
+        img = qrcode.make(url, image_factory=SvgPathImage, box_size=10, border=2)
+        buf = io.BytesIO()
+        img.save(buf)
+        return "data:image/svg+xml;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return None
+
+
+@tool("bili_login_qr", config.PERM_NET, "取一张 B 站登录二维码（带可以直接画出来的 svg）")
 def t_bili_login_qr(**_):
     d, err = bili.qr_generate()
     if err:
         return {"ok": False, "error": err}
-    return {"ok": True, **d,
+    return {"ok": True, **d, "svg": _qr_svg(d.get("url") or ""),
             "note": "手机 B 站扫这个码确认。不读浏览器 cookie —— 各浏览器存法不一样，还会被独占锁。"}
 
 
@@ -5676,6 +5742,257 @@ def t_bili_logout(**_):
             "say": "B 站本机凭证删掉了，现在回到免登录（480P）。要看高清得重新扫码。",
             "effect": "bili cred removed",
             "note": "本机凭证已清掉，回到免登录（480P）"}
+
+
+# ---------------------------------------------------------------- 账号 / 画质 / 进度对齐
+# 扫码只解决「有没有凭证」。人真正想知道的是：我现在是谁、画质能不能选、
+# 在 B 站上看了一半的那一讲本机能不能接着看。这三件都在这儿。
+
+KV_PLAY_QN = "play.qn"          # 画质偏好：80=1080P / 64=720P / 32=480P
+KV_BILI_SYNC = "bili.sync"      # 进度同步开关（"1" 开、"0" 关，默认开）
+
+_QN_NAME = {120: "4K", 116: "1080P60", 112: "1080P+", 80: "1080P", 64: "720P", 32: "480P", 16: "360P"}
+
+
+@tool("bili_me", config.PERM_LOCAL, "现在登的是谁：昵称、头像、等级、大会员（读不到就说读不到）")
+def t_bili_me(**_):
+    ck = _bili_cookie()
+    if not ck:
+        return {"ok": True, "logged_in": False,
+                "note": "没登录 —— 免登录只能到 480P，登录后能到 1080P"}
+    d, err = bili.me(ck)
+    if err or not d:
+        return {"ok": False, "logged_in": True, "error": err or "读不到账号信息",
+                "note": "本机有 cookie，但读不到账号 —— 可能已过期，重新扫码一次"}
+    return {"ok": True, "logged_in": True, "mid": d.get("mid"), "uname": d.get("uname"),
+            "face": d.get("face"), "level": d.get("level"), "vip": d.get("vip"),
+            "say": "现在是「%s」（Lv%s）" % (d.get("uname"), d.get("level") or 0),
+            "note": "头像和昵称是 nav 接口现读的，不是缓存的"}
+
+
+@tool("play_quality", config.PERM_LOCAL, "播放画质：现在用哪一档 / 改成 1080P、720P、480P")
+def t_play_quality(qn=None, **_):
+    logged = bool(_bili_cookie())
+    cur = store.kv_get(KV_PLAY_QN) or ""
+    try:
+        cur_q = int(cur) if cur else (80 if logged else 32)
+    except Exception:
+        cur_q = 32
+    if qn is None or str(qn) == "":
+        return {"ok": True, "qn": cur_q, "name": _QN_NAME.get(cur_q, str(cur_q)),
+                "say": "现在的画质是 " + _QN_NAME.get(cur_q, str(cur_q)),
+                "logged_in": logged,
+                "options": [{"qn": q, "name": n, "need_login": q > 32}
+                            for q, n in ((80, "1080P"), (64, "720P"), (32, "480P"))],
+                "note": "登录后才有 720P 以上；未登录最高 480P"}
+    try:
+        q = int(qn)
+    except Exception:
+        return {"ok": False, "error": "画质要是个数字（80 / 64 / 32）"}
+    if q not in (80, 64, 32, 16):
+        return {"ok": False, "error": "只认 1080P(80) / 720P(64) / 480P(32)，收到 %s" % qn}
+    if q > 32 and not logged:
+        return {"ok": False, "error": "没登录 B 站 —— 只有 480P。先扫码登录"}
+    store.kv_set(KV_PLAY_QN, str(q))
+    return {"ok": True, "qn": q, "name": _QN_NAME.get(q, str(q)),
+            "say": "画质改成 %s 了（下一讲生效；这一讲切一下会重新合一份）" % _QN_NAME.get(q, q),
+            "effect": "play.qn=%d" % q,
+            "note": "不同画质是两份独立缓存，会各占一份磁盘"}
+
+
+def _sync_on():
+    v = store.kv_get(KV_BILI_SYNC)
+    return (v is None) or (str(v) not in ("0", "false", "off"))
+
+
+@tool("bili_sync", config.PERM_LOCAL, "B 站进度同步开关：看现在开没开 / 开或关")
+def t_bili_sync(on=None, **_):
+    if on is None:
+        on_now = _sync_on()
+        # 只读也要自报一句：登记在 _WRITE_TOOLS 里的工具，没有 say 会被兜底打成
+        # effect_kind="unknown" —— 界面上就是「跑完了，但它没说改了哪儿」这种鬼话。
+        return {"ok": True, "on": on_now,
+                "say": "进度同步现在是" + ("开着的" if on_now else "关着的")}
+    v = str(on).lower() not in ("0", "false", "off", "no")
+    store.kv_set(KV_BILI_SYNC, "1" if v else "0")
+    return {"ok": True, "on": v,
+            "say": "进度同步" + ("打开了 —— 看视频顺便把进度报到 B 站历史" if v else "关掉了 —— 只记在本机"),
+            "effect": "bili.sync=%s" % ("1" if v else "0"),
+            "note": "关掉只是不上报；「接着 B 站看」的拉取也一起停"}
+
+
+@tool("bili_progress_sync", config.PERM_NET, "和 B 站对齐这一讲的进度：pull 拉过来 / push 报上去")
+def t_bili_progress_sync(lesson_id=None, mode="pull", seconds=None, **_):
+    if not lesson_id:
+        return {"ok": False, "error": "没指定讲次"}
+    ck = _bili_cookie()
+    if not ck:
+        return {"ok": False, "error": "没登录 B 站，进度同步不了"}
+    sub, les, bvid, pg = _lesson_point(lesson_id)
+    if not les:
+        return {"ok": False, "error": "本机没有这一讲：%s" % lesson_id}
+    if not bvid:
+        return {"ok": False, "error": "这一讲不是 B 站课（没有 bvid），没有进度可对"}
+    cid, err = bili.cid_of(bvid, pg)
+    if err:
+        return {"ok": False, "error": err}
+    local = store.get_lesson(lesson_id) or {}
+    lpos = int(local.get("pos_sec") or 0)
+
+    if str(mode) == "push":
+        sec = int(seconds if seconds is not None else lpos)
+        ok, err = bili.report_progress(bvid, cid, sec, ck)
+        if not ok:
+            return {"ok": False, "error": err}
+        store.kv_set(KV_BILI_SYNC, "1")
+        return {"ok": True, "pushed": sec,
+                "say": "B 站那边也记到 %d:%02d 了" % (sec // 60, sec % 60),
+                "effect": "bili progress -> %ds" % sec,
+                "note": "报的是这一讲在本机的进度，不会覆盖更靠后的记录"}
+
+    bpos, err = bili.last_played(bvid, cid, ck)
+    if err:
+        return {"ok": False, "error": err}
+    return {"ok": True, "bili_sec": bpos, "local_sec": lpos,
+            "ahead": "bili" if bpos > lpos + 5 else ("local" if lpos > bpos + 5 else "same"),
+            "say": ("B 站看到 %d:%02d，本机记着 %d:%02d —— 差 %d 秒"
+                    % (bpos // 60, bpos % 60, lpos // 60, lpos % 60, abs(bpos - lpos))),
+            "note": "只对比，不改本机记录；要接着 B 站看，课堂页会自己接到这个秒数"}
+
+
+# ---------------------------------------------------------------- 播放缓存 / 预热
+# 一讲第一次播，得先把 B 站两路轨拉下来合成本地 mp4（十几秒到半分钟）。
+# 171 讲就是 171 次等待 —— 而这件事本来可以趁人看上一讲的时候做完。
+# 所以两个工具：stream_status 报家底，stream_prefetch 往后排。
+# 队列在 server/streamer.py，一次只合一个（并发只会拖卡正在看的那一讲）。
+
+_CN_D = {"零": 0, "一": 1, "二": 2, "三": 3, "四": 4,
+         "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
+
+
+def _cn_num(s):
+    """「第十二章」→ 12。认不出给 9999 垫底，「其他/未分组」给 9998。"""
+    t = str(s or "")
+    if "其他" in t or "未分组" in t:
+        return 9998
+    m = re.search(r"第([零一二三四五六七八九十]+)章", t)
+    if not m:
+        return 9999
+    x = m.group(1)
+    if x == "十":
+        return 10
+    if "十" in x:
+        a, _, b = x.partition("十")
+        return (_CN_D.get(a, 1) if a else 1) * 10 + (_CN_D.get(b, 0) if b else 0)
+    return _CN_D.get(x, 9999)
+
+
+def _ordered_lessons(sub):
+    """这一科按「人会往下看的顺序」排：章号升序，章内保持库序（= B 站 P 序）。"""
+    ls = list(sub.get("lessons") or [])
+    return [l for _, l in sorted(enumerate(ls), key=lambda p: (_cn_num(p[1].get("chapter")), p[0]))]
+
+
+@tool("stream_status", config.PERM_LOCAL,
+      "本机播放缓存的家底：这门课备好几讲、这一讲备好没、队列还剩几讲、占多少磁盘")
+def t_stream_status(subject=None, lesson_id=None, **_):
+    st = streamer.status()
+    total = cached = 0
+    if subject:
+        sub = datahub.subject_flex(datahub.proto(), subject)
+        if not sub:
+            return {"ok": False, "error": "认不出这门课：%s" % subject}
+        ids = [l.get("id") for l in (sub.get("lessons") or [])]
+        total = len(ids)
+        cached = streamer.cached_count(ids)
+    ready_now = None
+    if lesson_id:
+        p, _n, _q = streamer.ready_any(lesson_id)
+        ready_now = bool(p)
+    mb = round((st.get("bytes") or 0) / 1048576.0)
+    return {"ok": True, "cached": cached, "total": total, "ready": ready_now,
+            "pending": st.get("pending") or 0, "files": st.get("files") or 0,
+            "mb": mb, "cap_gb": st.get("cap_gb"),
+            "ffmpeg": bool(st.get("ffmpeg")), "busy": bool(st.get("busy")),
+            "say": ("本机备好 %d 讲（%d MB），队列里还有 %d 讲在合"
+                    % (cached or st.get("files") or 0, mb, st.get("pending") or 0))
+                   if subject else ("本机缓存 %d 个文件 · %d MB，队列里还有 %d 讲"
+                                    % (st.get("files") or 0, mb, st.get("pending") or 0)),
+            "note": "上限 %.0f GB，满了清最老的（正在播的和排着队的不清）" % (st.get("cap_gb") or 0)}
+
+
+@tool("stream_prefetch", config.PERM_NET,
+      "提前把接下来几讲合成本机 mp4（后台自己排，不用人点；人一走就停）")
+def t_stream_prefetch(lesson_id=None, subject=None, scope="ahead", count=12, **_):
+    """把讲次排进后台合流队列。
+
+    scope：
+      one     —— 只这一讲
+      ahead   —— 从这一讲往后 count 讲（**默认**：进课堂自动跑，人不用管）
+      next    —— 这一讲 + 后面 count 讲
+      chapter —— 这一讲所在的整章
+      subject —— 从这一讲往后 200 讲（整门课太长，缓存上限撑不住）
+
+    这里顺手 mark_active：进了课堂就说明人马上要看。之后靠 log_playback 续命，
+    15 分钟没有播放打点，后台自己停 —— 人不看了就别占带宽。
+    """
+    try:
+        cnt = max(1, min(int(count or 12), 60))
+    except Exception:
+        cnt = 12
+    sub = None
+    if lesson_id:
+        sub, les, _bvid, _pg = _lesson_point(lesson_id)
+        if not les:
+            return {"ok": False, "error": "本机没有这一讲：%s" % lesson_id}
+    if subject:
+        sub = datahub.subject_flex(datahub.proto(), subject) or sub
+    if not sub:
+        return {"ok": False, "error": "没说要备哪门课 —— 给 subject 或 lesson_id"}
+
+    order = _ordered_lessons(sub)
+    all_ids = [l.get("id") for l in order]
+    if not all_ids:
+        return {"ok": False, "error": "这门课还没有讲次，没有可备的"}
+    if lesson_id and lesson_id in all_ids:
+        i = all_ids.index(lesson_id)
+    else:
+        # 没指定就从「第一讲还没看完的」开始 —— 那才是人接下来要看的地方
+        i = next((k for k, l in enumerate(order) if not l.get("done")), 0)
+
+    sc = str(scope or "ahead")
+    if sc == "one":
+        ids = all_ids[i:i + 1]
+    elif sc == "chapter":
+        ch = order[i].get("chapter") or ""
+        ids = [l.get("id") for l in order if (l.get("chapter") or "") == ch]
+    elif sc == "subject":
+        ids = all_ids[i:i + 200]
+    elif sc == "next":
+        ids = all_ids[i:i + cnt + 1]
+    else:                                   # ahead：只往后，不重复算当前这一讲
+        ids = all_ids[i:i + cnt]
+    ids = [x for x in ids if x]
+    if not ids:
+        return {"ok": False, "error": "算不出要备哪几讲"}
+    # 进了课堂 = 人马上要看。后台据此判断「还有人在这儿」，人走了自己停。
+    streamer.mark_active(lesson_id)
+
+    had = streamer.cached_count(ids)
+    added = streamer.warm(ids)
+    pend = streamer.pending()
+    total = len(ids)
+    if not added:
+        say = "这 %d 讲本来都在本机，不用再合（%d 讲已备好）" % (total, had or total)
+        eff = "no-op: all %d already cached" % total
+    else:
+        say = ("排了 %d 讲进后台%s —— 队列里一共 %d 讲；你看你的，合完就秒开"
+               % (added, ("（另有 %d 讲本来就在本机）" % had) if had else "", pend))
+        eff = "queued %d lessons for local mux" % added
+    return {"ok": True, "queued": added, "cached": had, "total": total,
+            "pending": pend, "say": say, "effect": eff,
+            "note": "一次只合一个（并发会拖卡正在看的那一讲）；缓存满 %.0f GB 自动清最老的"
+                    % streamer.status().get("cap_gb", 20)}
 
 
 @tool("context_status", config.PERM_LOCAL,
@@ -5786,3 +6103,32 @@ def t_kb_stats(**_):
     if not s.get("loaded"):
         say += "。编码模型这次还没加载，第一次搜会慢几秒"
     return {"ok": True, **s, "say": say}
+
+
+@tool("asr_status", config.PERM_LOCAL,
+      "语音转文字装没装、加载没加载、本机有没有现成模型（只读，不触发任何下载）")
+def t_asr_status(**_):
+    s = asr.status()
+    job = s.get("job") or {}
+    if s.get("loaded"):
+        say = "语音模型已经在内存里了，可以直接听写"
+    elif s.get("installed"):
+        say = "模型装好了（%.1f MB）但还没加载，第一次听写要等几秒" % ((s.get("size") or 0) / 1048576)
+    elif job.get("running"):
+        say = "正在装：%s" % (job.get("stage") or "…")
+    elif s.get("cached"):
+        say = "还没装进本项目，但本机缓存里有现成的（%.1f MB），装一下是秒完成" % (
+            (s.get("cached") or 0) / 1048576)
+    else:
+        say = "没有语音模型。要听写的话得先装（约 140MB）"
+    return {"ok": True, **s, "say": say}
+
+
+@tool("asr_setup", config.PERM_LOCAL,
+      "装语音模型（本机已有缓存就秒装，没有才联网下约 140MB）。装完不会自动加载，等第一次听写")
+def t_asr_setup(force=False, **_):
+    r = asr.setup_async(force=bool(force))
+    st = asr.status()
+    return {"ok": True, "started": r.get("started"), "say": r.get("say"),
+            "installed": st.get("installed"), "size": st.get("size"), "job": st.get("job")}
+

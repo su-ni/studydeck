@@ -14,11 +14,15 @@ import { Stats } from './pages/Stats'
 import { Writing } from './pages/Writing'
 import { Agent } from './pages/Agent'
 import { Canvas } from './pages/Canvas'
+import { Shots } from './pages/Shots'
 
 const KEY = 'sd_page'
 const SID_KEY = 'sd_sid'
+/* 这个数组是「哪些页能活下来」的白名单：hash 变了会走 initPage()，
+   名单里没有的页会被当场弹回去（新增页面忘了加，表现就是「点了没反应」）。
+   加 PageKey 的时候必须同步这里。 */
 const PAGES: PageKey[] = ['home', 'today', 'classroom', 'courses', 'schedule', 'vocab',
-  'practice', 'notes', 'notesAll', 'exam', 'stats', 'writing', 'agent', 'canvas']
+  'practice', 'notes', 'notesAll', 'exam', 'stats', 'writing', 'agent', 'canvas', 'shots']
 
 function initPage(): PageKey {
   const h = (location.hash || '').replace('#', '')
@@ -123,6 +127,7 @@ export function App() {
         {page === 'writing' && <Writing base={base} />}
         {page === 'agent' && <Agent base={base} />}
         {page === 'canvas' && <Canvas base={base} openReq={cvOpen} topHost={(x: React.ReactNode) => setCanvasTop(() => x)} />}
+        {page === 'shots' && <Shots base={base} />}
       </div>
     </Shell>
   )

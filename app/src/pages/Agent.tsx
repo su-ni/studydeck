@@ -5,6 +5,9 @@ import type { Base } from '../lib/api'
 import { Icon } from '../components/Icon'
 import { Empty } from '../components/V6'
 import { Sel } from '../components/Sel'
+import { takeIntent } from '../lib/intent'
+import { asrStatus, type AsrStatus } from '../lib/recorder'
+import { BiliLogin } from '../components/BiliLogin'
 
 /* 设置页 v7：配置台，不是仪表盘。
    上一版是「4 个数字 + 三张卡」——四件互不相干的事靠卡片边框隔着，
@@ -28,10 +31,14 @@ type Src = {
   hint?: { field?: string; label?: string; eg?: string; help?: string }
 }
 
-type SecKey = 'model' | 'sources' | 'backup' | 'danger'
+type SecKey = 'account' | 'model' | 'sources' | 'voice' | 'backup' | 'danger'
 const SECS: { k: SecKey; t: string; icon: string }[] = [
+  { k: 'account', t: 'B 站账号', icon: 'sound' },
   { k: 'model', t: '模型接入', icon: 'agent' },
   { k: 'sources', t: '数据来源', icon: 'tag' },
+  /* 语音单列一区，不塞进「模型接入」—— 它跟主模型不是两码事里的同一码：
+     主模型负责答话，这个只把人说的话变成字，装不装都不影响聊天。 */
+  { k: 'voice', t: '语音输入', icon: 'mic' },
   { k: 'backup', t: '数据与备份', icon: 'stack' },
   { k: 'danger', t: '危险区', icon: 'trash' },
 ]
@@ -62,8 +69,10 @@ export function Agent({ base }: { base: Base }) {
   const sy = useTool<{ bundles?: number; last_push?: string; peers?: number }>('sync_status')
   const calls = useTool<{ calls: any[] }>('recent_tool_calls', { limit: 30 })
   const pre = useTool<{ presets: Pre[] }>('ai_presets')
+  const pq = useTool<{ qn: number; logged_in: boolean }>('play_quality')
+  const bsync = useTool<{ on: boolean }>('bili_sync')
 
-  const [sec, setSec] = useState<SecKey>('model')
+  const [sec, setSec] = useState<SecKey>('account')
   const [msg, setMsg] = useState<string | null>(null)
   /* 抽屉：null 就是关着。两种内容 —— 自己的 API / 某个笔记来源。
      关掉不丢已存配置，也不清正在填的字（清字是「算了」那个动作的事）。 */
@@ -81,6 +90,52 @@ export function Agent({ base }: { base: Base }) {
   // 清空平台：必须手打「清空」两个字，按钮才亮
   const [wipeWord, setWipeWord] = useState('')
   const [xBusy, setXBusy] = useState(false)
+
+  /* ---- 语音输入 ---------------------------------------------------------
+     模型不在启动时加载：这里只问「装没装」，问一次就够（本地接口，1ms）。
+     装的过程中每秒刷一次，进度是真的（按已落盘字节算）。 */
+  const [av, setAv] = useState<AsrStatus | null>(null)
+  const [avTick, setAvTick] = useState(0)
+  const [avBusy, setAvBusy] = useState(false)
+
+  useEffect(() => { asrStatus().then(setAv) }, [avTick])
+  useEffect(() => {
+    if (!av?.job?.running) return
+    const t = setInterval(() => setAvTick((x) => x + 1), 1000)
+    return () => clearInterval(t)
+  }, [av?.job?.running])
+
+  /* 从聊天框点麦克风过来的人，要直接落在这一区，并且看到为什么来的。 */
+  useEffect(() => {
+    const it = takeIntent('agent')
+    if (!it) return
+    if (it.sec === 'voice') setSec('voice')
+    if (it.note) setMsg(it.note)
+  }, [])
+
+  async function installAsr(force = false) {
+    setAvBusy(true)
+    // force：已装之后再点就是「重装」—— 模型文件坏了、想重新拉一份时用。
+    // 不传 force 的话后端会回「已经有了，不用再装」，那颗按钮就成了点不动的死键。
+    const r = await callTool('asr_setup', { force }, { write: true })
+    const d = r.data || {}
+    setMsg(r.ok ? (d.say || '开始装') : (r.error || '没装上'))
+    setAvTick((x) => x + 1)
+
+    /* 装是后台线程干的，接口一返回就说「开始了」——但那时文件还没落地。
+       只刷新一次的话，人看到的就是「点了没反应」。这里盯着看，每秒问一次，
+       装好 / 明确报错 / 90 秒超时才退出。进度条上的数是服务端真实写盘字节。 */
+    for (let i = 0; i < 90; i++) {
+      await new Promise((res) => setTimeout(res, 1000))
+      const s = await asrStatus()
+      if (!s) break
+      setAv(s)
+      if (s.installed) break
+      if (s.job && !s.job.running && s.job.error) break
+    }
+    setAvBusy(false)
+    setAvTick((x) => x + 1)
+  }
 
   useEffect(() => {
     if (!sheet) return
@@ -236,6 +291,50 @@ export function Agent({ base }: { base: Base }) {
       </nav>
 
       <div className="setmain">
+        {sec === 'account' && (
+          <>
+            <div className="set-h">B 站账号</div>
+            <div className="set-sub">登录后能看 1080P；看视频的进度也会同步进 B 站历史，两边对齐。凭证只存本机。</div>
+            {msg ? <div className="set-note">{msg}</div> : null}
+
+            <div className="set-group">身份</div>
+            <div className="set-account"><BiliLogin label={false} /></div>
+            {/* 这句要写出来：用户明确问过「为什么没有验证码登录」。
+                不说清楚，人只会以为我们漏做了。 */}
+            <Row title="验证码登录"
+              sub="B 站网页端的短信登录必须过极验人机验证，程序替人过不去 —— 只能扫码。手机扫一下和收验证码一样快。"
+              tag="只支持扫码" tagCls="im" />
+
+            <div className="set-group">播放</div>
+            <Row title="默认画质"
+              sub={pq.data?.logged_in ? '登录状态下可用 1080P；不同画质各占一份缓存。' : '没登录最高 480P —— 先扫码登录。'}
+              act={
+                <Sel ariaLabel="默认画质" value={String(pq.data?.qn || 64)}
+                  style={{ width: 110 }}
+                  onChange={async (v) => {
+                    const r = await callTool('play_quality', { qn: Number(v) })
+                    setMsg(r.ok ? ('默认画质改成 ' + (r.data?.name || v) + ' 了') : (r.error || '没改上'))
+                    pq.run()
+                  }}
+                  options={[
+                    { value: '80', label: '1080P', disabled: !pq.data?.logged_in },
+                    { value: '64', label: '720P', disabled: !pq.data?.logged_in },
+                    { value: '32', label: '480P' },
+                  ]} />
+              } />
+            <Row title="进度同步到 B 站"
+              sub="看视频时每 5 分钟报一次进度；打开一讲时如果 B 站那边更靠后，就接着那儿放。"
+              tag={bsync.data?.on ? '已开' : '已关'} tagCls={bsync.data?.on ? 'ok' : 'im'}
+              act={
+                <button className="pbtn-mn ghost" onClick={async () => {
+                  const r = await callTool('bili_sync', { on: !bsync.data?.on })
+                  setMsg(r.ok ? (r.data?.say || '改好了') : (r.error || '没改上'))
+                  bsync.run()
+                }}>{bsync.data?.on ? '关掉' : '打开'}</button>
+              } />
+          </>
+        )}
+
         {sec === 'model' && (
           <>
             <div className="set-h">模型接入</div>
@@ -349,6 +448,77 @@ export function Agent({ base }: { base: Base }) {
             }) : (
               <Empty title="没有数据来源">这是给「把别处的东西记进来」用的 —— 不接也不影响做题。</Empty>
             )}
+          </>
+        )}
+
+        {sec === 'voice' && (
+          <>
+            <div className="set-h">语音输入</div>
+            <div className="set-sub">
+              在聊天框里按麦克风说话，本机转成文字再填进输入框。音频只在这台机器上转，
+              不出门；模型不装也能正常用键盘打字，装了才多这一个入口。
+            </div>
+            {msg ? <div className="set-note">{msg}</div> : null}
+
+            <div className="set-group">转写模型</div>
+            {(() => {
+              const job = av?.job
+              const busy = !!job?.running
+              const installed = !!av?.installed
+              const loaded = !!av?.loaded
+              const mb = (n?: number) => ((n || 0) / 1048576).toFixed(1) + ' MB'
+              const pct = job && job.total > 0 ? Math.min(100, Math.round((job.bytes / job.total) * 100)) : 0
+
+              const state = busy
+                ? (job!.stage || '装着…')
+                : installed
+                  ? (loaded ? '已装好，正在内存里待命' : '已装好，第一次转写时才读进内存（约 0.4 秒）')
+                  : av && av.cached > 0
+                    ? '还没装进本项目，但本机缓存里已有 ' + mb(av.cached) + '，点装是秒完成'
+                    : '还没装。约 141MB，要联网下'
+
+              return (
+                <>
+                  <Row
+                    title="faster-whisper base（中文）"
+                    sub={state}
+                    tag={busy ? '在装' : installed ? (loaded ? '在用' : '已装') : '没装'}
+                    tagCls={busy ? 'md' : installed ? 'ok' : 'im'}
+                    act={busy ? (
+                      <span className="set-cur">{pct}%</span>
+                    ) : (
+                      <button className={'pbtn-mn' + (installed ? ' ghost' : '')}
+                        disabled={avBusy} onClick={() => installAsr(installed)}>
+                        {installed ? '重装' : '装'}
+                      </button>
+                    )}
+                  />
+                  {busy ? (
+                    <div className="asr-prog">
+                      <i style={{ width: Math.max(2, pct) + '%' }} />
+                    </div>
+                  ) : null}
+                  {job?.error ? (
+                    <div className="set-note" style={{ color: 'var(--bad, #f87171)' }}>没装成：{job.error}</div>
+                  ) : null}
+
+                  <Row title="转写引擎"
+                    sub="faster-whisper / CTranslate2，纯 CPU int8。不占显卡，也不往云上传。"
+                    tag="本机" tagCls="im" />
+                  <Row title="一次最长"
+                    sub="5 分钟。到点自己停并照常转成文字 —— 不是把这段丢掉。"
+                    tag="300 秒" tagCls="im" />
+                  <Row title="听错同音字怎么办"
+                    sub="base 是最小的那个模型，语速快或口音重时会听错（比如「语气」听成「与弃」）。转出来的字会填进输入框，发出去之前自己看一眼改一下就行。"
+                    tag="先改再发" tagCls="md" />
+                </>
+              )
+            })()}
+
+            <div className="set-foot">
+              装了模型之后，聊天框那颗麦克风就是「点一下开始说，再点一下停」。
+              中途点别处、翻讲义、切课程都不会打断 —— 只有点麦克风才会停。
+            </div>
           </>
         )}
 

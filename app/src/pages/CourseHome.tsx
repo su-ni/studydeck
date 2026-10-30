@@ -2,6 +2,7 @@ import { callTool } from '../lib/api'
 import type { Base } from '../lib/api'
 import { useTool } from '../lib/useTool'
 import { clsColor } from '../components/V6'
+import { BiliLogin } from '../components/BiliLogin'
 
 /* 课程主页（docs/style-A-dark.html 定稿）：
    进去先看「这门课长什么样」——多少讲、多少小时、学到哪、这一讲接着看什么、
@@ -57,6 +58,8 @@ export function CourseHome({ base, sid, onGo }: {
   const srcs = useTool<{ sources: SrcRow[] }>('list_item_sources', { subject: realId }, { skip: !realId })
   const cur = useTool<Cur>('get_current_lesson', { subject: realId }, { skip: !realId })
   const lid = cur.data?.lesson?.id
+  const ss = useTool<{ cached: number; total: number; pending: number; mb: number }>(
+    'stream_status', { subject: realId }, { skip: !realId })
   const cont = useTool<{ covers?: { name: string; n: number }[] }>(
     'list_lesson_content', { lesson_id: lid }, { skip: !lid })
 
@@ -209,7 +212,12 @@ export function CourseHome({ base, sid, onGo }: {
             </div>
           )}
 
-          <div className="chome-sec">
+          {/* 一个分区一个框：接着学是一块「亮面」，章节和题源也得是一块亮面。
+              以前这两块只有一行小标题浮在页底，跟右栏的家底挤成一片灰字 ——
+              一屏看下去没有边界，人找不到「这一块是什么」。框和接着学同规格：
+              var(--card) 底 + 1px 边 + 14 圆角，靠留白分组，不靠阴影。 */}
+          <div className="chome-pan">
+          <div className="chome-pan-h">
             <h3>{groups.length} 章</h3>
             <span>{total} 讲 · {hours ? hours.toFixed(1) : '—'} 小时</span>
           </div>
@@ -235,8 +243,10 @@ export function CourseHome({ base, sid, onGo }: {
           ) : (
             <div className="chome-none">这门课还没有讲次目录。可以在课堂页跟助手说「我想学 XXX」，它会找到整门课并落进本机。</div>
           )}
+          </div>
 
-          <div className="chome-sec">
+          <div className="chome-pan">
+          <div className="chome-pan-h">
             <h3>题源</h3>
             <span>{srcAll.length} 个 · {srcTotal} 题</span>
           </div>
@@ -254,6 +264,7 @@ export function CourseHome({ base, sid, onGo }: {
           ) : (
             <div className="chome-none">这一科还没有题源。可以让助手去拉一份，或者在练习页按「按这一科出 3 题」生成。</div>
           )}
+          </div>
         </div>
 
         <aside className="chome-side">
@@ -268,6 +279,13 @@ export function CourseHome({ base, sid, onGo }: {
             <div className="rw"><span>讲次</span><b>{total}</b></div>
             <div className="rw"><span>总时长</span><b>{hours ? hours.toFixed(1) + ' 小时' : '—'}</b></div>
             <div className="rw"><span>可播</span><b>{playable} / {total}</b></div>
+            {/* 「能秒开」= 本机已经有合好的 mp4，点开就播、不用等合流。
+                这个数是文件数点出来的（stream_status 真去 stat），不是估的。 */}
+            <div className="rw" title="这些讲已经合成本机 mp4，点开就播；其余第一次要合十几秒">
+              <span>能秒开</span><b>{ss.data ? (ss.data.cached + ' / ' + ss.data.total) : '—'}</b>
+              {ss.data?.pending ? <em className="warm">后面还有 {ss.data.pending} 讲在合</em> : null}
+            </div>
+            <BiliLogin />
           </div>
 
           <div className="pan">

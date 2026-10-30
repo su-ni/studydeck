@@ -4,6 +4,13 @@ import { Icon } from '../components/Icon'
 import { ModelPicker } from '../components/ModelPicker'
 import { EffortPicker } from '../components/EffortPicker'
 import { PermPicker } from '../components/PermPicker'
+import { setIntent } from '../lib/intent'
+import {
+  asrStatus, cancel as asrCancel, clearError as asrClearError,
+  snapshot as asrSnapshot, start as asrStart, stop as asrStop,
+  subscribe as asrSubscribe, takeText as asrTakeText,
+  type AsrState,
+} from '../lib/recorder'
 import { md } from '../md'
 
 /* ================= 今日页：一个能聊的助手 =================
@@ -1001,6 +1008,63 @@ export function Chat({
   const taRef = useRef<HTMLTextAreaElement>(null)
   const bodyRef = useRef<HTMLDivElement>(null)
   const busyRef = useRef(false)
+
+  /* ---- 语音输入 ----------------------------------------------------------
+     录音器在 lib/recorder.ts 里，是模块级单例 —— 这里只订阅它的状态。
+     所以切页、点别处、Chat 整个卸载都不会打断录音；只有点麦克风才会停。 */
+  const [asr, setAsr] = useState<AsrState>(asrSnapshot())
+  useEffect(() => asrSubscribe(setAsr), [])
+
+  /* 转写结果落地：有字就接在现有输入后面，不覆盖人已经打了一半的话。
+     取完即清（recorder.takeText），所以切页回来不会重复粘一遍。 */
+  useEffect(() => {
+    if (asr.phase !== 'idle') return
+    const got = asrTakeText()
+    if (!got) return
+    setText((old) => {
+      const needSep = old.length > 0 && !/\s$/.test(old)
+      return old + (needSep ? ' ' : '') + got
+    })
+    requestAnimationFrame(() => {
+      const t = taRef.current
+      if (!t) return
+      t.style.height = 'auto'
+      t.style.height = Math.min(t.scrollHeight, 132) + 'px'
+      t.focus()
+    })
+  }, [asr.phase])
+
+  /* 麦克风：三种情况
+       还在录 → 停（这是唯一能停的方式）
+       正在转 → 不理
+       没模型 → 送去设置页语音分区，装完回来就能用
+     注意这里没有任何「点空白就结束」的监听 —— 那是要刻意写才会有的，不写就没有。 */
+  async function onMic() {
+    if (asr.phase === 'recording') { await asrStop(); return }
+    if (asr.phase === 'transcribing') return
+    if (asr.phase === 'error') asrClearError()
+
+    const s = await asrStatus()
+    if (!s || !s.installed) {
+      setIntent({
+        page: 'agent',
+        sec: 'voice',
+        note: s
+          ? '语音模型还没装。在这儿点一下「装」，回来再按麦克风就能说话。'
+          : '连不上本机服务，没法确认语音模型装没装。',
+      })
+      location.hash = 'agent'
+      return
+    }
+    await asrStart()
+  }
+
+  const mmss = (n: number) => {
+    const m = Math.floor(n / 60)
+    const s = n % 60
+    return (m < 10 ? '0' : '') + m + ':' + (s < 10 ? '0' : '') + s
+  }
+
   /* 这一轮的流式请求。「停一下」= 先让后端在检查点收口，再掐掉本地这条读流。 */
   const acRef = useRef<AbortController | null>(null)
 
@@ -1716,6 +1780,14 @@ export function Chat({
 
       <div className="chat-dock">
         <div className="dock-in">
+          {/* 麦克风出问题就在这儿说清楚：被拒、被占用、没设备，三种原因给三种说法。
+              点一下关掉，不自己消失 —— 一句话没听清就飘走的提示等于没说。 */}
+          {asr.error ? (
+            <button className="mic-err" onClick={asrClearError} title="知道了">
+              <span>{asr.error}</span>
+              <Icon n="x" size={11} />
+            </button>
+          ) : null}
           <div className={'cbox' + (busy ? ' busy' : '')}>
             <textarea
               ref={taRef}
@@ -1744,6 +1816,26 @@ export function Chat({
               <ModelPicker />
               <EffortPicker disabled={busy} />
               <PermPicker disabled={busy} />
+              {/* 麦克风。录音时按钮自己变色，旁边跟一颗真实的秒数；
+                  再点一次就是停 —— 除此之外没有任何东西能让它停。 */}
+              <button
+                className={'mic' + (asr.phase === 'recording' ? ' rec' : '')
+                  + (asr.phase === 'transcribing' ? ' wait' : '')}
+                onClick={onMic}
+                disabled={asr.phase === 'transcribing'}
+                title={asr.phase === 'recording' ? '点一下：停止并转成文字'
+                  : asr.phase === 'transcribing' ? '正在转写…'
+                    : '点一下开始说话（说完再点一下）'}
+              >
+                <Icon n="mic" size={14} />
+              </button>
+              {asr.phase === 'recording' ? (
+                <span className="mic-t">
+                  <i className="dot" />{mmss(asr.seconds)} · 再点麦克风停
+                </span>
+              ) : asr.phase === 'transcribing' ? (
+                <span className="mic-t dim">在转…</span>
+              ) : null}
               <div className="sp" />
               {msgs.length > 0 && (
                 <button className="clr" onClick={clearAll} title="把这段对话清掉">清空</button>

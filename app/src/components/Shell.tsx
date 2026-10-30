@@ -6,7 +6,7 @@ import { useTool } from '../lib/useTool'
 
 export type PageKey =
   | 'home' | 'today' | 'classroom' | 'courses' | 'schedule' | 'vocab'
-  | 'practice' | 'notes' | 'notesAll' | 'exam' | 'stats' | 'writing' | 'agent' | 'canvas'
+  | 'practice' | 'notes' | 'notesAll' | 'exam' | 'stats' | 'writing' | 'agent' | 'canvas' | 'shots'
 
 export type NavItem = { k: PageKey; t: string; n: IconName; cnt?: (b: Base) => number }
 
@@ -31,6 +31,9 @@ const ICON_NAV_TAIL: { k: PageKey; t: string; n: IconName }[] = [
   { k: 'stats', t: '统计', n: 'stats' },
   { k: 'courses', t: '课程库', n: 'courses' },
   { k: 'canvas', t: '画布', n: 'canvas' },
+  /* 截图库：课堂上按 S 存下来的帧、画布导出的图、上传的图，全在这儿翻。
+     以前只有课堂右栏（本讲 24 张）和画布抽屉能看到 —— 截了 200 张没处找。 */
+  { k: 'shots', t: '截图库', n: 'img' },
   { k: 'agent', t: '设置', n: 'agent' },
 ]
 
@@ -49,7 +52,7 @@ const COURSE_TABS_FIXED: { k: PageKey; t: string }[] = [
 
 /* 这些页不属于「某一门课」，顶栏就不该出现那一排视图胶囊：
    今日是五门课混排，课程库/考场/统计是全局，画布和设置是工具，笔记总览是全部课。 */
-const NO_COURSE_TABS: PageKey[] = ['today', 'courses', 'exam', 'stats', 'canvas', 'agent', 'notesAll']
+const NO_COURSE_TABS: PageKey[] = ['today', 'courses', 'exam', 'stats', 'canvas', 'agent', 'notesAll', 'shots']
 
 export const NAV: NavItem[] = ICON_NAV.concat(ICON_NAV_TAIL).map((x) => ({ k: x.k, t: x.t, n: x.n }))
 
@@ -70,6 +73,7 @@ export const TITLES: Record<PageKey, { kick: string; h1: string; sub: string }> 
   writing: { kick: '作文', h1: '写一篇', sub: '本机先数能数的（词数 / 要点 / 格式），语言与文采要模型判 —— 模型没接就写「没判」，不给分' },
   agent: { kick: '设置', h1: '能力与数据', sub: '模型、题源、备份、同步 —— 所有能力都是可调用工具，点一行就真调一次' },
   canvas: { kick: '画布', h1: '笔记画布', sub: '导图存在本机，可拉 XMind / Obsidian 等来源' },
+  shots: { kick: '截图库', h1: '截过的每一帧', sub: '课堂按 S 存的帧、画布导出的图、上传的图 —— 按科目和关键词找得到' },
 }
 
 function coverOf(s: any): string {

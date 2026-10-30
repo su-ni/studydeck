@@ -37,6 +37,9 @@ const P: Record<string, ReactElement> = {
   // 否则影院模式开着的时候看不出点下去是打开还是收起。
   full: <path d="M6.5 3H3v3.5M11.5 3H15v3.5M6.5 15H3v-3.5M11.5 15H15v-3.5" fill="none" />,
   sound: <><path d="M4 7.5h2.5L10 4.5v9L6.5 10.5H4z" fill="none" /><path d="M12.2 6.8a3.6 3.6 0 0 1 0 4.4M14 5.2a6 6 0 0 1 0 7.6" fill="none" /></>,
+  // 麦克风：胶囊 + 托弧 + 立杆。录音时按钮会换成实心红底，图形本身不改 ——
+  // 「再点一下停」比「图标从麦克风变成方块」好认。
+  mic: <><rect x="7" y="2.2" width="4" height="8" rx="2" fill="none" /><path d="M4.6 8.4a4.4 4.4 0 0 0 8.8 0" fill="none" /><path d="M9 12.8v2.9" fill="none" /></>,
   star: <path d="M9 2.8l1.9 4 4.4.6-3.2 3 .8 4.3L9 12.7l-3.9 2 .8-4.3-3.2-3 4.4-.6z" />,
   down: <path d="M4 7l5 5 5-5" fill="none" />,
   cloud: <><path d="M5.6 13.5h7.2a3.2 3.2 0 0 0 .3-6.4A4.6 4.6 0 0 0 4.4 8a3 3 0 0 0 1.2 5.5z" fill="none" /><path d="M9 15.5v-5M7 12.6l2 2 2-2" fill="none" /></>,

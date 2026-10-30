@@ -447,3 +447,103 @@ def qr_poll(key=None):
         out["ok"] = False
         out["state"] = "扫码过了，但没拿到 SESSDATA —— 可能浏览器拦了 Set-Cookie"
     return out, None
+
+
+# ---------------------------------------------------------------- 账号 / 进度同步
+#
+# 扫码登录只拿到 cookie，界面上什么都没变 —— 人看不到「我是谁、登没登上」。
+# nav 这个接口一次给全：昵称、头像、等级、大会员。头像用 hdslb 的直链，
+# 前端直接 <img>，不用落本机。
+#
+# 进度同步走两条路：
+#   拉 —— player/wbi/v2 的 last_play_time（B 站自己记的秒数）
+#   报 —— x/v2/history/report（带 csrf=bili_jct 的 form POST，实测 code=0）
+# 这两条都是官方网页自己用的接口，不是抓包猜的。
+
+def me(cookie=None):
+    """账号信息。没登录就回 (None, None)，调用方自己决定怎么显示。"""
+    if not cookie:
+        return None, None
+    d, err = _get("https://api.bilibili.com/x/web-interface/nav", cookie=cookie)
+    if err:
+        return None, err
+    if (d or {}).get("code") != 0:
+        return None, "没登录（nav code=%s）" % (d or {}).get("code")
+    data = d.get("data") or {}
+    if not data.get("isLogin"):
+        return None, "没登录"
+    return {
+        "mid": data.get("mid"), "uname": data.get("uname"),
+        "face": data.get("face"), "level": (data.get("level_info") or {}).get("current_level"),
+        "vip": bool(data.get("vipStatus")),
+        "money": data.get("money"),
+    }, None
+
+
+def cid_of(bvid, page):
+    pgs, err = pages(bvid)
+    if err:
+        return None, err
+    hit = next((x for x in pgs if int(x.get("page") or 0) == int(page or 1)), None)
+    if not hit:
+        return None, "这个 bvid 上没有第 %s P" % page
+    return hit["cid"], None
+
+
+def aid_of(bvid):
+    """上报进度要 aid 不是 bvid。按 bvid 现查，不快但一次就够。"""
+    v, err = view(bvid)
+    if err:
+        return None, err
+    return (v or {}).get("aid"), None
+
+
+def last_played(bvid, cid, cookie=None):
+    """B 站给这一 P 记的播放进度（秒）。没登录 / 没看过就 0。"""
+    if not cookie:
+        return 0, "没登录"
+    mk, err = _mixin_key()
+    if err:
+        return 0, err
+    qs = _sign({"bvid": norm_bv(bvid), "cid": cid}, mk)
+    d, err = _get("https://api.bilibili.com/x/player/wbi/v2?" + qs, cookie=cookie)
+    if err:
+        return 0, err
+    if (d or {}).get("code") != 0:
+        return 0, "wbi/v2 code=%s" % (d or {}).get("code")
+    data = d.get("data") or {}
+    ms = data.get("last_play_time") or 0
+    return int(ms // 1000), None
+
+
+def report_progress(bvid, cid, sec, cookie=None):
+    """把进度报给 B 站（等于在网页上看了这么长）。成功回 (True, None)。"""
+    if not cookie:
+        return False, "没登录"
+    csrf = ""
+    for p in cookie.split(";"):
+        p = p.strip()
+        if p.startswith("bili_jct="):
+            csrf = p.split("=", 1)[1]
+            break
+    if not csrf:
+        return False, "cookie 里没有 bili_jct，报不了进度（重新扫码登录一次）"
+    aid, err = aid_of(bvid)
+    if err or not aid:
+        return False, err or "拿不到 aid"
+    body = urllib.parse.urlencode({
+        "aid": aid, "cid": cid, "progress": max(0, int(sec)),
+        "csrf": csrf, "platform": "web",
+    }).encode()
+    req = urllib.request.Request(
+        "https://api.bilibili.com/x/v2/history/report", data=body,
+        headers={"User-Agent": UA, "Referer": "https://www.bilibili.com/",
+                 "Content-Type": "application/x-www-form-urlencoded", "Cookie": cookie})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as r:
+            d = json.loads(r.read().decode("utf-8", "replace"))
+    except Exception as e:
+        return False, "连不上（%s）" % (str(e)[:80] or e.__class__.__name__)
+    if (d or {}).get("code") != 0:
+        return False, "report code=%s %s" % ((d or {}).get("code"), (d or {}).get("message"))
+    return True, None

@@ -6,6 +6,7 @@ import { Empty, Skel } from '../components/V6'
 import { Sel } from '../components/Sel'
 import { upName } from '../lib/fmt'
 import { ShapeThumb } from './canvas/ShapeThumb'
+import { BiliLogin } from '../components/BiliLogin'
 import type { Base, Lesson } from '../lib/api'
 
 /* 课堂页 v6：左目录 + 右讲台，这个布局本来就对，不动结构，只换语言。
@@ -91,12 +92,46 @@ export function Classroom({ base, goCanvas, initSid }: {
 
   const subj = cur.data?.subject ?? subs.find((s) => s.id === sid)
   const les = cur.data?.lesson
+
+  /* ── 画质 ──────────────────────────────────────────────────────
+     以前是写死的：没登录 480P、登录了也只到 720P，界面上连选都没得选。
+     现在右上角一个下拉，1080P / 720P / 480P；选了存本机（play.qn），下一讲直接生效。
+     不同画质是两份独立缓存 —— 切一次要重新合，所以切完要明说「在准备」。 */
+  const pq = useTool<{ qn: number; name: string; logged_in: boolean }>('play_quality')
+  const [qn, setQn] = useState(0)
+  useEffect(() => { if (pq.data?.qn) setQn((v) => v || pq.data!.qn) }, [pq.data?.qn])
+  async function pickQn(v: string) {
+    const n = Number(v) || 0
+    const r = await callTool('play_quality', { qn: n })
+    if (!r.ok) { setVErr(r.error || '画质没切成功'); return }
+    const t = vid.current?.currentTime || 0
+    resumeAt.current = t
+    setQn(n)
+    setStarted(false); setBuf(true)
+    pq.run()
+    setShotMsg('画质切到 ' + (r.data?.name || n) + '，正在准备这一档')
+  }
+
   // 播放地址统一走本机 /stream/<lesson_id>（服务端会把本地 mp4 302 到 /media，
   // B 站分 P 则现场合流成能拖进度条的 mp4）。直链不能直接给 <video>：
   // 它带签名、约 2 小时过期，还要求 Referer —— 浏览器里带不出来。
+  // ?q= 只在人手动选过之后带；不选就听后端（它自己读 play.qn）。
   const src = les?.local
     ? '/media/' + encodeURI(les.local)
-    : (lid ? '/stream/' + encodeURIComponent(lid) : '')
+    : (lid ? '/stream/' + encodeURIComponent(lid) + (qn ? '?q=' + qn : '') : '')
+
+  /* ── 接着 B 站看的那个位置 ────────────────────────────────────
+     两边进度不一样的时候，不能装作没这回事：B 站靠前就接到那儿（人可能就是
+     在手机上看了一半），本机靠前就什么都不做（本机才是准的，回头 log_playback
+     会把更靠后的进度报上去）。差 45 秒以内不折腾 —— 那是同一个位置。 */
+  const resumeAt = useRef(0)
+  const bp = useTool<{ bili_sec: number; local_sec: number; ahead: string }>(
+    'bili_progress_sync', { lesson_id: lid, mode: 'pull' }, { skip: !lid })
+  useEffect(() => {
+    const d = bp.data
+    if (!d || d.ahead !== 'bili') return
+    if ((d.bili_sec || 0) - (d.local_sec || 0) > 45) resumeAt.current = d.bili_sec
+  }, [bp.data])
   const coverRaw = (subj?.cover || '') as string
   const poster = /^https?:\/\//i.test(coverRaw) ? coverRaw : (coverRaw ? '/' + coverRaw.replace(/^\//, '') : '')
 
@@ -114,6 +149,22 @@ export function Classroom({ base, goCanvas, initSid }: {
   useEffect(() => {
     setStarted(false); setVErr(null); setArmed(false); setBuf(false)
     accSec.current = 0; lastPos.current = 0; lastUp.current = 0
+  }, [lid])
+
+  /* ── 往后备（全自动，不给按钮）──────────────────────────────────
+     以前是「点了播放才开始合流」：每换一讲都要盯着「正在合成」等十几秒到半分钟，
+     一门 171 讲就是 171 次等待。
+
+     现在一进这一讲，就地往后排 12 讲。后台一个工人串行合，人一走（15 分钟没有
+     播放打点）自己停 —— 所以这件事不需要人决定，也不该让人去点。
+     ready 是「这一讲现在能不能秒开」的真实文件判定，不是猜的。 */
+  const [ready, setReady] = useState<boolean | null>(null)
+  useEffect(() => {
+    if (!lid) { setReady(null); return }
+    setReady(null)
+    callTool<{ ready: boolean }>('stream_status', { lesson_id: lid })
+      .then((r) => setReady(r.ok ? !!r.data?.ready : null)).catch(() => setReady(null))
+    callTool('stream_prefetch', { lesson_id: lid, scope: 'ahead', count: 12 }).catch(() => {})
   }, [lid])
 
   /* ── 截这一帧（S 键）────────────────────────────────────────────
@@ -194,6 +245,21 @@ export function Classroom({ base, goCanvas, initSid }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [theater])
 
+  /* 原生全屏 → 接管成影院模式。
+     原生全屏里只有 <video> 待在 top layer，截图回执、画质下拉、退出按钮
+     一个都画不出来 —— 人按 S 会觉得「全屏就截不了图」，其实截了也看不见。
+     所以一进原生全屏就退出来、换成我们自己的铺满，屏幕上该有的都还在。 */
+  useEffect(() => {
+    const onFs = () => {
+      if (document.fullscreenElement) {
+        try { document.exitFullscreen?.() } catch { /* 退不出来就留在影院模式里，不影响 */ }
+        setTheater(true)
+      }
+    }
+    document.addEventListener('fullscreenchange', onFs)
+    return () => document.removeEventListener('fullscreenchange', onFs)
+  }, [])
+
   useEffect(() => {
     const v = vid.current
     if (!v) return
@@ -272,7 +338,7 @@ export function Classroom({ base, goCanvas, initSid }: {
         </div>
       </aside>
 
-      <div className="cls2-stage">
+      <div className={"cls2-stage" + (theater ? " cls2-theater" : "")}>
         {/* 顶栏两行：身份行（讲次 + 科目/来源 + 两侧开关）和动作行（截帧 / 看完）。
             一行塞满的后果是标题被压成竖排、按钮折成两行 —— 三栏布局里中间这一栏本来就窄。 */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '0 0 6px' }}>
@@ -317,9 +383,7 @@ export function Classroom({ base, goCanvas, initSid }: {
               {armed ? '再点一次确认' : '标记看完'}
             </button>
           )}
-          {/* 回执。原来挤成 10.5px 灰字贴在顶栏第二行，人扫不到 ——
-              现在带图标的绿/黄胶囊，尺寸和旁边那排标签一致。 */}
-          {shotMsg ? <span className="tg-mn ok shotmsg-mn">{shotMsg}</span> : null}
+          <span style={{ marginLeft: 'auto' }}><BiliLogin compact /></span>
         </div>
 
         <div className="cls2-screen">
@@ -332,7 +396,18 @@ export function Classroom({ base, goCanvas, initSid }: {
                 onWaiting={() => setBuf(true)}
                 onPlaying={() => setBuf(false)}
                 onCanPlay={() => setBuf(false)}
-                onLoadedMetadata={(e) => setDur(e.currentTarget.duration || 0)}
+                onLoadedMetadata={(e) => {
+                  const v = e.currentTarget
+                  setDur(v.duration || 0)
+                  /* 接到 B 站那个位置（或切画质前的秒数）。只跳一次 ——
+                     跳完清掉，否则每次 canplay 都会被拽回去。 */
+                  const t = resumeAt.current
+                  if (t && t < (v.duration || 0) && Math.abs((v.currentTime || 0) - t) > 5) {
+                    try { v.currentTime = t } catch { /* 元数据没就绪就算了，不硬跳 */ }
+                    resumeAt.current = 0
+                    setShotMsg('接着 ' + clock(t) + ' 继续')
+                  }
+                }}
                 onTimeUpdate={(e) => {
                   const t = e.currentTarget.currentTime || 0
                   setCurSec(t)
@@ -361,17 +436,43 @@ export function Classroom({ base, goCanvas, initSid }: {
                     const v = vid.current
                     if (v) { v.load(); v.play().catch(() => {}) }
                   }}>
-                  <i><Icon n="play" size={26} /></i><em>{les?.local ? '点这里开始看' : '点这里开始看 · 第一次要合流，等十几秒'}</em>
+                  <i><Icon n="play" size={26} /></i><em>{ready === false ? '点这里开始看 · 第一次要合流，等十几秒' : '点这里开始看'}</em>
                 </button>
               ) : null}
               {buf ? (
                 <div className="vbuf" aria-live="polite">
-                  <i /><span>正在把这讲合成本机能拖的 mp4 —— 只做这一次，之后秒开</span>
+                  <i /><span>第一次打开这一讲，正在合成本机能拖的 mp4 —— 后面几讲已经在后台备着了</span>
                 </div>
               ) : null}
               {/* 闪光板：key 一变就重挂，动画从头放一遍（同一张图连截也能再闪）。
                   aria-hidden + pointer-events:none —— 它只是视觉回执，不是控件。 */}
               {flash ? <span key={flash} className="vflash" aria-hidden /> : null}
+              {/* 截帧回执画在播放器里，不是工具栏里。
+                  影院模式下工具栏被整块视频盖住 —— 回执放那儿等于没回执，
+                  人只会觉得「按了没反应」。 */}
+              {shotMsg ? <div className="vshot">{shotMsg}</div> : null}
+              {/* 影院模式的出口。Esc 也能退，但屏幕上没有一颗「退出」的话，
+                  人会以为卡在那个页面里了。 */}
+              {theater ? (
+                <button className="vtheater-exit" onClick={() => setTheater(false)}
+                  title="退出影院模式（Esc）">
+                  <Icon n="fit" size={14} />退出影院
+                </button>
+              ) : null}
+              {/* 画质：右上角常显。它是「现在是什么」而不是「点一下干什么」，
+                  所以不做成 hover 才出现的那种控件 —— 想换的时候得先找。 */}
+              {les?.local ? null : (
+                <div className="vqsel">
+                  <Sel ariaLabel="画质"
+                    value={String(qn || pq.data?.qn || 64)}
+                    onChange={pickQn}
+                    options={[
+                      { value: '80', label: '1080P', disabled: !pq.data?.logged_in },
+                      { value: '64', label: '720P', disabled: !pq.data?.logged_in },
+                      { value: '32', label: '480P' },
+                    ]} />
+                </div>
+              )}
               {/* 「影院」：自己接管全屏，不用浏览器原生那个。
                   原生全屏里键盘事件不再传给页面，S 就废了 —— 而截帧恰恰常在
                   放大看的时候最想用。这颗按钮进的是 .cls2-theater（整页铺满、
