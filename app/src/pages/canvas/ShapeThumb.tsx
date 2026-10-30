@@ -37,7 +37,19 @@ export function ShapeThumb({ shape, W = 300, H = 118, cls = 'sthumb mind' }: {
      结果是字号得压到 7.5px、盒子互相叠 —— 看着像一串标点，不像导图。
      缩略图的职责是「一眼认出这是一张什么形状的图」，不是把字读全。 */
   const cx = W / 2, cy = H / 2
-  const FS = Math.max(6, Math.round(H * 0.097 * 10) / 10)
+  /* 字号下限不能只是「看着不糊」，还得跟**分支数**配合 ——
+     196×54 这种小卡里，3 个分支只用 H*0.22 的行距摞起来，
+     盒子只有 H*0.178 高（约 9.6px）、字 6px，实际渲染出来是一坨深色块，
+     用户看到的就是「课堂右栏那张画布是个黑方块」。
+     这里做两件事：
+       ① 字号按「盒子高度」而不是整张图的高度算，盒子高才是字真正的容身处；
+       ② 分支太多时不再硬塞，只画前 N 个并在末尾用「+n」示意 —— 缩略图的职责是
+          「一眼认出这是什么形状」，塞满只会糊成一片。 */
+  const maxRows = H < 80 ? 3 : 6
+  const showBranches = branches.length > maxRows ? branches.slice(0, maxRows - 1) : branches
+  const moreCount = branches.length - showBranches.length
+  const rowH = H * 0.178
+  const FS = Math.max(7, Math.min(H * 0.19, Math.round(rowH * 0.62 * 10) / 10))
   const chw = (c: string) => (c.charCodeAt(0) > 0x2e80 ? FS * 0.75 : FS * 0.43)
   const tw = (t: string) => {
     let w = 0
@@ -64,9 +76,9 @@ export function ShapeThumb({ shape, W = 300, H = 118, cls = 'sthumb mind' }: {
   /* 每侧能用多宽：半张图 - 主题一半 - 间距 - 边距 */
   const avail = Math.floor(W / 2 - rootW / 2 - GAP - PAD)
 
-  const half = Math.ceil(branches.length / 2)
-  const right = branches.slice(0, half)
-  const left = branches.slice(half)
+  const half = Math.ceil(showBranches.length / 2)
+  const right = showBranches.slice(0, half)
+  const left = showBranches.slice(half)
   /* 行距按「这一侧有几支」算。固定值在三支时挤成一条，在七支时又漏出画布。 */
   const rowOf = (n: number) => (n <= 1 ? 0 : Math.min(H * 0.22, (H * 0.81) / (n - 1)))
   const BOX_MAX = Math.max(30, Math.min(Math.round(W * 0.32), avail))
@@ -117,6 +129,12 @@ export function ShapeThumb({ shape, W = 300, H = 118, cls = 'sthumb mind' }: {
         <text x={cx} y={cy + rootH * 0.18} fontSize={FS * 1.05} fontWeight="750" textAnchor="middle" fill="var(--cvroottx)">
           {clip(root.t || '', rootW)}
         </text>
+        {/* 分支太多时，右下角标一个「+n」—— 缩略图只画得下几条，
+            但「还有更多」这件事必须说出来，否则人会以为这张图就这么点内容。 */}
+        {moreCount > 0 ? (
+          <text x={W - 4} y={H - 4} fontSize={Math.max(8, FS * 0.95)} textAnchor="end"
+            fill="var(--cvtx2)" opacity=".9">{'+' + moreCount}</text>
+        ) : null}
       </svg>
     </span>
   )

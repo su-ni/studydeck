@@ -2094,6 +2094,15 @@ button {
   background-image:radial-gradient(#22262D 1px,transparent 1px);
   background-size:22px 22px;
 }
+/* 节点位置过渡：**只在避让时才开**。
+   之前写成 .react-flow__node { transition: transform .2s } 是错的：
+   拖拽节点时 ReactFlow 每帧改 transform，过渡让节点追着鼠标慢半拍，
+   而连线（SVG path）是即时重算的 —— 于是节点慢、线快，看着就是「线跟节点断开了」。
+   实测拖拽中那个节点的 class 是 `selected selectable`，压根没有 dragging，
+   所以指望 .dragging 去关过渡是关不掉的。
+   现在改成：只有舞台上带 .dodging（备注浮层开着、节点正在让位）时才给过渡，
+   平时一根都不带 —— 拖拽永远是跟手的。 */
+.cvstage.dodging .react-flow__node { transition:transform .2s var(--ease); }
 .cvnode {
   position:static;
   background:var(--cvpanel2);
@@ -2154,6 +2163,19 @@ button {
   border-left:1px solid var(--cvline);
   padding:12px;
   overflow-y:auto;
+  /* 没选中节点时整条收起（宽收到 0）。用 flex-basis/width 过渡而不是 display:none：
+     display 切变没有过渡，面板会「啪」一下消失；宽度过渡能看出它是滑回去的，
+     收回来的宽度也让画布真正变宽 —— 这才是收起的意义。
+     overflow:hidden 必须加，否则收起过程中内容会溢出到旁边的舞台上。 */
+  flex:0 0 auto;
+  overflow-x:hidden;
+  transition:width .22s var(--ease), padding .22s var(--ease);
+}
+.cvright.shut {
+  width:0;
+  padding-left:0;
+  padding-right:0;
+  border-left:0;
 }
 .cvinsp label {
   display:block;
@@ -2446,6 +2468,15 @@ button[disabled] {
   display:grid;
   grid-template-columns:230px minmax(0,1fr) 272px;
 }
+/* 检查器收起时把右列整个压成 0。
+   宽度写死在 grid 的第三列上，所以光给 .cvright 设 width:0 不够 ——
+   列还在，面板只是被挤扁。这里按「有没有 .shut」换整行的列定义。
+   过渡加在 grid-template-columns 上：grid 轨道尺寸本身可动画，
+   于是画布是「慢慢变宽」而不是一下跳过去。 */
+.cvmain:has(> .cvright.shut) {
+  grid-template-columns:230px minmax(0,1fr) 0px;
+  transition:grid-template-columns .22s var(--ease);
+}
 .cvleft,.cvright {
   background:var(--cvpanel);
   padding:14px;
@@ -2470,7 +2501,8 @@ button[disabled] {
   position:absolute;
   left:50%;
   transform:translate(-50%);
-  bottom:12px;
+  /* 空选态那行提示也抬到缩放条之上，理由同 .cvselbar：两条都居中贴底会叠。 */
+  bottom:56px;
   z-index:5;
   padding:7px 12px;
   border-radius:999px;
@@ -2478,8 +2510,11 @@ button[disabled] {
   border:1px solid var(--cvline);
   color:var(--cvtx2);
   font-size:11.5px;
-  pointer-events:none;
+  /* 自动收起后仍要能被鼠标碰到（hover 复现），所以只靠 opacity/位移隐藏，
+     不设 display:none / visibility:hidden —— 那两个会让 hover 永远叫不回来。 */
+  transition:opacity .3s var(--ease), transform .3s var(--ease);
 }
+.cvhint.gone { opacity:0; transform:translate(-50%, 6px); }
 .cvmap {
   display:block;
   width:100%;
@@ -2543,7 +2578,18 @@ button[disabled] {
   grid-template-columns:repeat(auto-fill,minmax(300px,1fr));
   gap:14px;
   align-content:start;
+  /* 每张卡自己一列、等宽等高：卡之间有长标题/短标题，
+     不撑一下的话同一行的卡片高度会参差，看着像没对齐的表格。 */
+  align-items:stretch;
 }
+/* 卡片必须撑满整格。
+   .gcardwrap 是 display:block（包着卡片 + 那枚绝对定位的删除键），
+   .gcard 自己又是 inline-flex 出来的宽度 —— 两个都按内容宽算，
+   于是列宽 484 的格子里只摆一张 340 宽的卡，右边空出一条，
+   而删除键贴在「卡片」的右上角，看着就像飘在卡外面（实测偏出 80px）。
+   宽度写死 100%，让卡和删除键都对齐到格子。 */
+.cvgalgrid > .gcardwrap { width:100%; height:100%; }
+.cvgalgrid > .gcardwrap > .gcard { width:100%; height:100%; }
 .gcard {
   display:flex;
   flex-direction:column;
@@ -2580,6 +2626,31 @@ button[disabled] {
   padding: 1px 6px; border-radius: 999px; background: var(--cvpanel2);
 }
 .gsec-ln { flex: 1; height: 1px; background: var(--cvline); }
+/* ── 讲次小节（科目 → 讲次 的第二层）─────────────────────────────
+   以前图库只按科目分一层：「计算机 3 张」摊在一起，找「第 3 讲那张」得逐张看标题。
+   现在科目下面再分讲次，「第 5 讲 · 进制转换」一行说清这一组是什么。
+   没挂讲次的单独一档、颜色压淡 —— 那是真的没归位，不是我们在猜。 */
+.gles { margin: 2px 0 14px; }
+.gles:last-child { margin-bottom: 2px; }
+.gles-hd {
+  display: flex; align-items: center; gap: 7px;
+  padding: 0 2px 7px 10px;
+  font-size: 11px;
+  color: var(--cvtx2);
+}
+.gles-hd em {
+  font-style: normal; font-weight: 700; color: var(--cvtx2);
+  font-variant-numeric: tabular-nums;
+}
+.gles-hd span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 46%; }
+.gles-hd i {
+  font-style: normal; font-size: 10px; font-weight: 700;
+  color: var(--cvtx3); font-variant-numeric: tabular-nums;
+  padding: 1px 5px; border-radius: 999px; background: var(--cvpanel2);
+}
+.gles-hd.none { opacity: .6; }
+/* 讲次这一层的卡片网格：缩进一点，跟科目抬头形成层级 */
+.gles .cvgalgrid { padding-left: 10px; }
 .gsec-add { height: 22px; padding: 0 8px; font-size: 10.5px; }
 
 /* 画布卡上的删除键：跟截图卡同一套位置与手感，只多一层「删了就没」的份量 */
@@ -2608,12 +2679,38 @@ button[disabled] {
    坑在这儿：.gthumb 自己是 padding:9px 10px + overflow:hidden，118px 里只剩 100px 给 svg，
    底下那支分支就被拦腰切掉（实测「2 判定」只剩半个字），看着像画错了。
    所以有导图的时候把 .gthumb 的内边距和背景去掉，让 svg 自己铺满。 */
-.gcard .gthumb:has(> .sthumb.mind) { padding: 0; background: var(--cvpanel2); }
-.gcard .sthumb.mind { display: block; padding: 0; height: 118px; }
-.gcard .sthumb.mind svg { display: block; width: 100%; height: 118px; }
+.gcard .gthumb:has(> .sthumb.mind) {
+  padding: 0;
+  /* 缩略图那块的底：一层极淡的径向渐变，让图看起来「浮在画布上」而不是贴在卡片上。
+     不用纯色 —— 纯色配黑色导图线，边缘会显得脏。 */
+  background:
+    radial-gradient(120% 90% at 50% 0%, rgba(255,176,32,.05), transparent 62%),
+    var(--cvbg);
+}
+/* svg 的 viewBox 宽高比是 340×148，父级 .gthumb 也正好 148px 高（含 border 1px）。
+   所以 svg 直接写 100%×100% 会差 1px、并且 height:100% 在 display:block 的
+   父级里按内容高度算 —— 实测只画出上一半。这里用固定 147px 封顶，
+   配合 preserveAspectRatio="xMidYMid meet"，多出来的那 1px 由它自己居中让开。 */
+.gcard .sthumb.mind { display: block; padding: 0; height: 189px; }
+/* 高度被压到 76px 的真凶不是 flex，是下面 .sthumb 那条 max-height:76px：
+   它是给「一列带点的小字」那种老缩略图定的天花板，导图缩略图早就改画 SVG 了，
+   这条上限还在，于是 147px 的 svg 只画出上半截、下半截空着。
+   卡片里的导图缩略图要放开这个上限；别处（左栏小列表）继续受 76px 约束，不受影响。 */
+.gcard .sthumb.mind { max-height: none; flex: none; }
+.gcard .sthumb.mind svg { display: block; width: 100%; height: 189px; }
+/* 卡片预览：hover 时缩略图轻微放大。
+   卡片本身已经有 -1px 上浮，缩略图再跟一点，视觉上像「这张图被拿起来了」。
+   用 transform 而不是改尺寸 —— 改尺寸会触发重排，一屏几十张卡会卡。 */
+.gcard .gthumb { transition: background-color .16s var(--ease); }
+.gcard .sthumb.mind svg { transition: transform .22s var(--ease); transform-origin: 50% 50%; }
+.gcard:hover .sthumb.mind svg { transform: scale(1.035); }
 
+/* 缩略图那块的高度**只有一个来源**：这条 148px。
+   以前这里写 118px，而下面 .sthumb.mind 和它的 svg 又各自写 148px ——
+   三处不一致，overflow:hidden 就把超出的那半截裁掉，缩略图只剩上半张，
+   卡片标题那行也跟着被挤出去了。改高度只改这一个数字。 */
 .gcard .gthumb {
-  height:118px;
+  height:190px;
   overflow:hidden;
   padding:9px 10px;
   background:var(--cvbg);
@@ -2661,21 +2758,40 @@ button[disabled] {
 .gcard .gmeta {
   display:flex;
   flex-direction:column;
-  gap:3px;
-  padding:10px 12px 12px;
+  gap:7px;
+  padding:11px 13px 13px;
 }
-.gcard .gmeta b {
-  font-size:12.5px;
-  font-weight:650;
-  line-height:1.4;
+/* 标题在左、元信息在右 —— 两边都有内容，卡才不再「左重右空」。
+   标题要能占满剩下的宽度，所以是 flex:1 + min-width:0（不然长标题会把右边的
+   元信息顶出卡片）。元信息 flex:none，永远不被压缩。 */
+.gcard .gmeta-top {
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+}
+.gcard .gmeta-top b {
+  flex:1 1 auto;
+  min-width:0;
+  font-size:13px;
+  font-weight:680;
+  line-height:1.35;
   overflow:hidden;
   text-overflow:ellipsis;
   white-space:nowrap;
 }
 .gcard .gsrc {
+  flex:none;
   font-size:10.5px;
   color:var(--cvtx2);
   font-variant-numeric:tabular-nums;
+}
+.gcard .gtags {
+  display:flex;
+  gap:5px;
+  flex-wrap:wrap;
+}
+.gcard .gtag.off {
+  opacity:.66;
 }
 .gcard .gtag {
   align-self:flex-start;
@@ -2721,6 +2837,59 @@ button[disabled] {
   font-weight:700;
 }
 .cvtab b { font-size:10.5px; font-variant-numeric:tabular-nums; opacity:.85; }
+
+/* ── 库顶栏（2026-10-30 重排）───────────────────────────────────────
+   原来十颗控件平铺：两个 tab、五个筛选、一个新建，长得一样、字号一样，
+   只有颜色淡浓之分 —— 眼睛要在里面现找。现在分三段：
+     左「看什么」（分段控件）｜中「怎么筛 / 排序」（圆角小药丸）｜右「新建」（实心）。
+   中间用 .cvbar-sp 把后两段推开，新建那颗永远贴右 —— 它是这一页唯一的主行动。 */
+.cvbar-seg {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px; border-radius: 999px;
+  background: var(--cvpanel2); border: 1px solid var(--cvline);
+}
+.cvseg-t {
+  display: inline-flex; align-items: baseline; gap: 5px;
+  height: 24px; padding: 0 13px;
+  border: 0; border-radius: 999px; background: transparent;
+  color: var(--cvtx2); font-size: 11.5px; font-weight: 650;
+  font-family: inherit; cursor: pointer;
+  transition: background-color .14s var(--ease), color .14s var(--ease);
+}
+.cvseg-t:hover { color: var(--cvtx); }
+/* 选中的那一段用「抬起来的白底」而不是琥珀：这一栏是「我在看哪一类」，
+   不是「现在该点哪」—— 琥珀留给下面那颗新建。 */
+.cvseg-t.on { background: var(--cvpanel); color: var(--cvtx); box-shadow: 0 1px 0 rgba(255,255,255,.06) inset; }
+.cvseg-t b {
+  font-size: 10.5px; font-variant-numeric: tabular-nums; font-weight: 700;
+  color: var(--cvtx3);
+}
+.cvseg-t.on b { color: var(--cvroot); }
+
+.cvbar-sp { flex: 1 1 auto; min-width: 8px; }
+.cvbar-group {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px; border-radius: 8px;
+  background: rgba(23,26,32,.6); border: 1px solid var(--cvline);
+}
+.cvpick {
+  height: 22px; padding: 0 9px;
+  border: 0; border-radius: 6px; background: transparent;
+  color: var(--cvtx2); font-size: 11px; font-weight: 600;
+  font-family: inherit; cursor: pointer;
+  transition: background-color .12s var(--ease), color .12s var(--ease);
+}
+.cvpick:hover { background: var(--cvpanel2); color: var(--cvtx); }
+.cvpick.on { background: rgba(255,176,32,.15); color: var(--cvroot); }
+/* 新建：整条顶栏唯一的实心按钮。 */
+.cvmk {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 26px; padding: 0 12px;
+  border: 0; border-radius: 8px; background: var(--cvroot); color: var(--cvroottx);
+  font-size: 11.5px; font-weight: 750; font-family: inherit; cursor: pointer;
+  transition: filter .12s var(--ease);
+}
+.cvmk:hover { filter: brightness(1.08); }
 .cvfind-inp {
   height:28px;
   width:186px;
@@ -5166,6 +5335,87 @@ input::placeholder,textarea::placeholder {
   background:var(--cvpanel2);
   border:1px solid var(--cvline);
 }
+
+/* ── Ctrl+F 呼出的搜索条（2026-10-31）────────────────────────────
+   原来这块常驻左栏，把大纲压得只剩几行。现在浮在舞台右上角，
+   不用的时候一条都不占。它是浮层，所以要有明确的边和投影，
+   不然看不出它压在画布上。 */
+.cvfindbar {
+  position:absolute;
+  top:12px;
+  right:12px;
+  z-index:30;
+  width:320px;
+  max-width:calc(100% - 24px);
+  padding:8px;
+  border-radius:11px;
+  background:rgba(23,26,32,.97);
+  border:1px solid var(--cvline);
+  box-shadow:0 14px 34px -12px rgba(0,0,0,.7);
+  -webkit-backdrop-filter:blur(6px);
+  backdrop-filter:blur(6px);
+  animation:cvfindIn .16s var(--ease);
+}
+@keyframes cvfindIn { from { opacity:0; transform:translateY(-6px) } to { opacity:1; transform:none } }
+.cvfindrow {
+  display:flex; align-items:center; gap:7px;
+  height:29px; padding:0 9px;
+  border-radius:8px; background:var(--cvpanel2); border:1px solid var(--cvline);
+}
+.cvfindrow .ic { stroke:var(--cvtx3); flex:0 0 auto; }
+.cvfindrow input {
+  flex:1 1 auto; min-width:0; border:0; background:transparent;
+  color:var(--cvtx); font-family:inherit; font-size:12px; outline:none;
+}
+.cvfindrow input::placeholder { color:var(--cvtx3); }
+.cvfindbar .cvhits { margin:7px 2px 0; }
+.cvfindbar .cvsr { max-height:300px; overflow-y:auto; margin-top:7px; }
+
+/* ── 绑定讲次面板 ─────────────────────────────────────────
+   跟 Ctrl+F 搜索条同一套浮层语言（右上角、同样的边和投影），
+   但里面是可多选的讲次清单，按科目分组。 */
+.cvbindbar {
+  position:absolute; top:12px; right:12px; z-index:31;
+  width:340px; max-width:calc(100% - 24px);
+  display:flex; flex-direction:column;
+  max-height:calc(100% - 90px);
+  padding:8px; border-radius:11px;
+  background:rgba(23,26,32,.98); border:1px solid var(--cvline);
+  box-shadow:0 14px 34px -12px rgba(0,0,0,.7);
+  animation:cvfindIn .16s var(--ease);
+}
+.cvbindlist { flex:1 1 auto; min-height:0; overflow-y:auto; margin-top:7px; padding-right:2px; }
+.cvbindgrp { margin-bottom:9px; }
+.cvbindhd {
+  display:flex; align-items:center; gap:6px;
+  padding:2px 4px 5px; font-size:10.5px; font-weight:700; color:var(--cvtx2);
+}
+.cvbindhd i { font-style:normal; color:var(--cvtx3); font-weight:600; }
+.cvbindrow {
+  display:flex; align-items:center; gap:7px; width:100%;
+  padding:4px 6px; border:0; border-radius:6px; background:transparent;
+  color:var(--cvtx2); font-size:11.5px; font-family:inherit; text-align:left; cursor:pointer;
+}
+.cvbindrow:hover { background:var(--cvpanel2); color:var(--cvtx); }
+.cvbindrow.on { color:var(--cvtx); }
+.cvbindbox {
+  flex:none; width:14px; height:14px; border-radius:4px;
+  border:1px solid var(--cvline2); display:grid; place-items:center;
+  color:var(--cvroottx);
+}
+.cvbindbox.on { background:var(--cvroot); border-color:var(--cvroot); }
+.cvbindtx { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.cvbindfoot {
+  flex:none; display:flex; align-items:center; gap:7px;
+  margin-top:7px; padding-top:7px; border-top:1px solid var(--cvline);
+  font-size:11px; color:var(--cvtx3);
+}
+.cvbindfoot .sp { flex:1; }
+.cvfindx {
+  flex:0 0 auto; width:22px; height:22px; display:grid; place-items:center;
+  border:0; border-radius:6px; background:transparent; color:var(--cvtx3); cursor:pointer;
+}
+.cvfindx:hover { background:var(--cvpanel); color:var(--cvtx); }
 .cvfind .ic {
   stroke:var(--cvtx3);
   flex:0 0 auto;
@@ -5216,12 +5466,35 @@ input::placeholder,textarea::placeholder {
 .cvstage .react-flow__node.selected::after {
   border-color: var(--act) !important;
 }
+/* 框选那个矩形：ReactFlow 自带样式是蓝的（#0e6ed4 系），一进画布就跟全站的
+   琥珀/炭色打架 —— 它是「我正在选东西」的唯一反馈，颜色错了用户以为进了别的软件。
+   框线用琥珀、填充压到 8% 透明：太实会盖住底下的节点，看不出框里有什么。 */
+.cvstage .react-flow__selection {
+  background: rgba(255, 176, 32, .07);
+  border: 1px solid var(--act);
+}
+/* 多选后**不显示那个框**，只高亮节点（照 XMind 的做法）。
+   为什么不能 display:none：这个元素不只是画个框，它本身就是「拖动整批节点」的把手，
+   display:none 会把 pointer-events 一起干掉 —— 结果是框没了、整批也拖不动。
+   所以用「画成透明」而不是「删掉」：border 和 background 都清空，
+   位置/尺寸/pointer-events 全保留，用户看不见它，但抓边照样能拖。 */
+.cvstage .react-flow__nodesselection-rect {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
 .cvselbar.bulk {
   background: rgba(42,31,12,.96);
   border-color: #6A4E18;
 }
 .cvselbar.bulk .cvtxt { color: var(--act2); font-weight: 700; }
 
+/* 批量条 / 单节点条贴在舞台底部。
+   早先它和缩放条都是「居中贴底」，两条叠在一起：实测批量条只露出上边缘，
+   按钮全被压住，看着像「多选没有工具条」。后来把批量条抬到 56px 错开，
+   但用户反馈那条浮在半空、不像「贴底的」，所以现在改回来：
+   缩放条本身在**右下角**（.cvzoom 的 right:14px，后面那条规则覆盖掉的），
+   底部中间是空的 —— 批量条回到 bottom:14px 居中，既贴底又不撞任何东西。 */
 .cvselbar {
   position:absolute;
   left:50%;
@@ -5249,6 +5522,15 @@ input::placeholder,textarea::placeholder {
   overflow:hidden;
   text-overflow:ellipsis;
 }
+/* 批量条上的「已选 N 个」放宽一点：它决定后面那几颗按钮作用于什么，
+   被截成「已选 24…」等于没写。 */
+.cvselbar.bulk .cvtxt { max-width:280px; }
+/* 「上色」打开色板时保持高亮 —— 色板浮在它正上方，不给 on 态的话，
+   人分不清那一排色块是从哪颗按钮冒出来的。 */
+.cvselbar button.on { background:var(--cvpanel2); color:var(--act); }
+/* 删除是这一条里唯一不可撤回的动作，给它一点红，别混在一排灰按钮里被误点。 */
+.cvselbar button.danger { color:var(--bad); }
+.cvselbar button.danger:hover:not([disabled]) { background:rgba(255,107,74,.16); color:#FF8A6B; }
 .cvselbar button {
   display:inline-flex;
   align-items:center;
@@ -7860,6 +8142,18 @@ input::placeholder,textarea::placeholder {
 .cvnode:hover .cvntool,
 .cvnode.sel .cvntool,
 .cvnode:focus-within .cvntool { opacity:1; pointer-events:auto; transform:none; }
+/* 框选 / 多选期间，节点自己的那条工具条**不许出现**。
+   踩了很久的坑：框选时 ReactFlow 会把扫过的节点都标成 selected，我们的 .cvnode
+   也跟着带上 .sel，于是上面那条 .cvnode.sel .cvntool 就让**每个**被框到的节点
+   都亮出一条工具条 —— 鼠标一动就是一片按钮，根本看不清框到了谁。
+   NodeTools 里那个 multi 判断只在松手之后才为真，拦不住拖动过程中。
+   所以在舞台这一层再加一道闸：框选态 / 已选中多个时，节点工具条一律隐藏。
+   单选一个节点时仍然正常悬停出条（那才是真正会用到的场景）。 */
+.cvstage.bulk-sel .cvnode .cvntool,
+.cvstage .cvnode.multi-sel .cvntool {
+  opacity:0 !important;
+  pointer-events:none !important;
+}
 
 /* 跟手工具条：多选时才用，位置贴在鼠标上（不是挂在某个节点底下）。
    —— 五个节点底下各挂一条一模一样的工具条是错的，「加子节点」也没有唯一对象。
@@ -7931,8 +8225,15 @@ input::placeholder,textarea::placeholder {
 }
 .cvnotebadge-pop {
   position:absolute;
-  right:0;
-  top:19px;
+  /* 气泡挂在徽标的**右侧**，不挂正下方。
+     挂下方有两个问题：
+       1) 节点自己的工具条也在下方（.cvntool 的 bottom:-30px），气泡一出来就被那排
+          按钮压在下面 —— 用户说的「鼠标放上去显示备注，结果被导航栏遮住」就是它；
+       2) 下方是子节点的位置，气泡会盖住下一层的内容。
+     挂右侧：图标在节点右上角，气泡从它右边展开，正好落在节点外的空白里。
+     左边留了 .flip-l 备用（靠屏幕右边缘时翻到左侧），由 JS 在打开时判定。 */
+  left:18px;
+  top:-4px;
   display:none;
   min-width:120px;
   max-width:260px;
@@ -8182,8 +8483,14 @@ input::placeholder,textarea::placeholder {
 .cvcolorpop-sw.none:hover { color:var(--tx); }
 .cvcolorpop-div { width:1px; height:14px; background:var(--line2); margin:0 1px; }
 
-/* 批量条（选中多个节点时贴底那一条）里的色板：同一套色块，竖排在按钮上方。 */
-.cvselbar.bulk { position:relative; }
+/* 批量条（选中多个节点时贴底那一条）里的色板：同一套色块，竖排在按钮上方。
+
+   ⚠ 这里**只**能改定位上下文（让 .cvbulkpop 的 absolute 相对这条 bar 算），
+   不能写成 position:relative —— 那会把 .cvselbar 自己的 absolute 顶掉，
+   整条 bar 就从「贴底浮着」变成「文档流里的一块」，bottom:56px 直接失效。
+   实测症状：批量条掉到舞台最底、正好压在缩放条上，按钮只露一条边。
+   position:absolute 本身就已经是定位上下文，色板一样能找到它。 */
+.cvselbar.bulk { position:absolute; }
 .cvbulkpop {
   position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%);
   display:flex; align-items:center; gap:5px;
@@ -8201,10 +8508,11 @@ input::placeholder,textarea::placeholder {
    所以这里绝对定位不会把连线带偏，也不会撑大节点盒子。 */
 .cvnotefloat {
   position:absolute;
-  top:calc(100% + 8px);
-  left:0;
   width:300px;
   max-width:320px;
+  /* 70 必须压过 NodeTools（那条在 6~40 区间）：
+     浮层以前挂节点正下方，正好被那排按钮盖住，人看不见自己正在写的字。
+     现在挂侧面，但层级仍要压过它 —— 万一视觉上还是叠到了，也该是浮层在上面。 */
   z-index:70;
   padding:8px;
   border-radius:10px;
@@ -8213,6 +8521,16 @@ input::placeholder,textarea::placeholder {
   box-shadow:0 14px 34px rgba(0,0,0,.6);
   animation:cvpop .12s ease-out;
 }
+/* 挂右侧（默认）：贴在节点右边，纵向与节点顶部对齐。
+   挂左侧：贴在节点左边。两边都不再往节点下方挤 —— 下面是工具条的地盘。 */
+.cvnotefloat.side-r { left:calc(100% + 10px); top:0; }
+.cvnotefloat.side-l { right:calc(100% + 10px); left:auto; top:0; }
+/* 入场：朝展开的方向轻推 6px，同时淡入。不做常亮呼吸 —— 用户正在打字，
+   任何持续动画都会让人分神，也会让避让后的节点看着「在抖」。 */
+@keyframes cvnoteInR { from { opacity:0; transform:translateX(-6px) } to { opacity:1; transform:none } }
+@keyframes cvnoteInL { from { opacity:0; transform:translateX(6px) } to { opacity:1; transform:none } }
+.cvnotefloat.side-r { animation:cvnoteInR .18s var(--ease); }
+.cvnotefloat.side-l { animation:cvnoteInL .18s var(--ease); }
 /* 右边那半张画布上，向左展开更不容易被窗口切掉 */
 .react-flow__node[data-id] .cvnotefloat { left:0; }
 
@@ -8246,9 +8564,16 @@ input::placeholder,textarea::placeholder {
   display: flex;
   align-items: center;
   gap: 6px;
+  /* 宽度/高度一律由外层 .react-flow__node 的 style 决定（见 Canvas.tsx 里给
+     node.style.width/height 的那段）。这里只负责「填满它、且绝不撑破它」。
+     ⚠ 必须 min-width:0 + overflow:hidden：flex 子项默认 min-width:auto，
+     长文字会把内容撑到 224px，而外层只有 64px —— 于是节点的**可见范围**
+     比 ReactFlow 记录的宽一圈，多选框就框不住它（实测右边差 19px）。 */
   width: 100%;
-  max-width: none;
+  max-width: 100%;
+  min-width: 0;
   height: 100%;
+  overflow: hidden;
   box-sizing: border-box;
   background: var(--card);
   border: 1px solid var(--line2);
@@ -8320,14 +8645,25 @@ input::placeholder,textarea::placeholder {
   color: var(--tx2);
   background: var(--card);
 }
+/* 选中态。框选之后**只有这个反馈**（那个框已经按 XMind 的做法隐掉了），
+   所以它必须一眼看得出来：琥珀描边 + 同色淡底 + 一圈外发光。
+   外发光用 box-shadow 而不是再加 outline：outline 只能一层，
+   而「选中的这一批」需要跟「悬停的那一个」区分开。 */
 .cvstage .react-flow__node .cvnode.sel {
   outline: 2px solid var(--act);
   outline-offset: 2px;
-  background: var(--card2);
+  background: rgba(255, 176, 32, .10);
   color: var(--tx);
+  box-shadow: 0 0 0 5px rgba(255, 176, 32, .10);
 }
 .cvstage .react-flow__node .cvnode.d0.sel {
   outline-color: var(--act2);
+  box-shadow: 0 0 0 5px rgba(255, 176, 50, .13);
+}
+/* 框选进行中：被扫到的节点先给一个更轻的即时反馈（还没松手，不算最终选中），
+   这样拖的时候能实时看出「现在框住了哪些」，不用等松手才知道。 */
+.cvstage.bulk-sel .react-flow__node .cvnode.sel {
+  transition: outline-color .08s linear, box-shadow .08s linear;
 }
 
 /* 折叠态：虚线边 + 角上一个「+N」。折叠的是子孙，本体还在这儿 */

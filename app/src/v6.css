@@ -3564,12 +3564,40 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .top-ctx .tplain .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
 
 /* ---------- 笔记页（课程内 / 全部课，同一套渲染） ---------- */
-.nts-bar { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+.nts-bar { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; flex-wrap: wrap; }
 .nts-bar .sp { flex: 1; }
 .nts-sel.csel { width: 168px; }
 .nts-ctx { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; color: var(--tx2); }
 .nts-ctx .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
-.nts-n { font-size: 12px; color: var(--tx3); }
+.nts-n { font-size: 12px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+
+/* 笔记页的课程筛选：胶囊分段，跟画布库、练习页范围条同一套语言。
+   为什么不用下拉：这一页的「看哪一门」最多六七项、而且每项都带着条数，
+   下拉一点开就把条数藏起来了，人还得来回切着比。 */
+.nts-seg {
+  display: inline-flex; align-items: center; gap: 2px;
+  padding: 2px; border-radius: 999px;
+  background: var(--card2); border: 1px solid var(--line);
+  max-width: 100%; overflow-x: auto; scrollbar-width: none;
+}
+.nts-seg::-webkit-scrollbar { display: none; }
+.nts-pick {
+  display: inline-flex; align-items: center; gap: 5px;
+  height: 26px; padding: 0 11px; flex: none;
+  border: 0; border-radius: 999px; background: transparent;
+  color: var(--tx2); font-size: 12px; font-weight: 600;
+  font-family: inherit; cursor: pointer; white-space: nowrap;
+  transition: background-color .12s var(--ease), color .12s var(--ease);
+}
+.nts-pick:hover { color: var(--tx); background: var(--card3); }
+.nts-pick.on { background: var(--act); color: var(--onact); }
+.nts-pick.on .dot { box-shadow: 0 0 0 2px rgba(0,0,0,.16); }
+.nts-pick .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.nts-pick b {
+  font-size: 10.5px; font-weight: 700; font-variant-numeric: tabular-nums;
+  color: var(--tx3);
+}
+.nts-pick.on b { color: rgba(26,16,0,.66); }
 .nts-btn {
   height: 30px;
   padding: 0 12px;
@@ -3584,6 +3612,11 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 .nts-btn:hover { background: var(--card2); color: var(--tx); }
 .nts-btn.on { border-color: transparent; background: var(--act); color: #000; }
 .nts-btn.on:hover { background: var(--act2); color: #000; }
+/* 图标型按钮（刷新）：跟主行动同高，但只有 30px 宽，一眼看出它是次要的 */
+.nts-btn.icon { width: 30px; padding: 0; display: grid; place-items: center; color: var(--tx3); }
+.nts-btn.icon:hover:not(:disabled) { color: var(--tx); }
+.nts-btn:disabled { opacity: .5; cursor: default; }
+@keyframes spin { to { transform: rotate(360deg); } }
 .nts-grp { margin-bottom: 2px; }
 .nts-item {
   display: block;
@@ -3798,6 +3831,89 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 
 .shot-c { background: var(--card); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; display: flex; flex-direction: column; }
 .shot-c:hover { border-color: var(--line2); }
+/* 已勾选：整张卡亮起来，而不是只让那个小方框变个色 ——
+   一屏二十张，眼睛先看到的是「哪几张亮着」，不是角落里的勾。 */
+.shot-c.on { border-color: var(--act); background: var(--card2); box-shadow: 0 0 0 1px var(--act) inset; }
+.shots-grid.picking .shot-c { cursor: pointer; }
+.shots-grid.picking .shot-img { cursor: pointer; }
+
+/* 勾选方块：只在多选态出现，压在图的左上角。
+   用一次点击的「已选」状态表达不是装饰 —— 勾上没有只靠边框（边框在缩略图上会被图吃掉）。 */
+.shot-chk {
+  position: absolute; left: 7px; top: 7px; z-index: 2;
+  width: 20px; height: 20px; border-radius: 6px;
+  display: grid; place-items: center;
+  border: 1.5px solid rgba(255,255,255,.5);
+  background: rgba(10,8,6,.62); color: #1A1000;
+  backdrop-filter: blur(3px);
+  transition: background-color .12s var(--ease), border-color .12s var(--ease);
+}
+.shot-chk.on { background: var(--act); border-color: var(--act); }
+.shot-chk.sm { width: 16px; height: 16px; left: 4px; top: 4px; border-radius: 5px; border-width: 1.2px; }
+
+/* 卡片上的标签：最多露三个。标签是「以后怎么找」，不是正文，压在图底部一条。 */
+.shot-tags {
+  position: absolute; left: 7px; bottom: 7px; right: 52px;
+  display: flex; gap: 4px; overflow: hidden; pointer-events: none;
+}
+.shot-tags i {
+  font-style: normal; font-size: 10px; line-height: 1;
+  padding: 3px 6px; border-radius: 5px;
+  background: rgba(10,8,6,.78); color: var(--tx2);
+  white-space: nowrap;
+}
+
+/* ===== 多选工具条 =====
+   只在多选态出现，而且吸顶：一屏二十张，滚到底想起来「我勾了哪些」就得再滚回去。
+   位置在筛选条之下、网格之上 —— 它属于「这一屏的图」，不属于页面抬头。 */
+.shots-bar {
+  position: sticky; top: 0; z-index: 20;
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 9px 12px; margin-bottom: 12px;
+  background: var(--card2); border: 1px solid var(--line2); border-radius: 11px;
+  backdrop-filter: blur(8px);
+}
+.shots-bar .n { font-size: 12px; color: var(--tx2); font-variant-numeric: tabular-nums; }
+.shots-bar .n b { color: var(--act); font-size: 13px; }
+.shots-bar .sp { flex: 1; }
+.shots-bar .pbtn-mn { height: 27px; font-size: 11.5px; }
+/* 两下确认的第二下：红底常亮，跟单张删除的 .shot-del.on 同一个意思 */
+.shots-bar .pbtn-mn.danger.on {
+  background: rgba(255,107,74,.9); color: #fff; border-color: transparent;
+}
+.shots-tagbox {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 10px 12px; margin-bottom: 12px;
+  background: var(--card); border: 1px solid var(--line); border-radius: 11px;
+}
+.shots-tagbox .inp-mn { flex: 0 1 260px; }
+.shots-tagbox .hint { font-size: 11px; color: var(--tx3); display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.tagchip-mn {
+  height: 22px; padding: 0 8px; border-radius: 6px;
+  background: var(--card3); border: 1px solid var(--line2);
+  color: var(--tx2); font-size: 11px; font-family: inherit; cursor: pointer;
+}
+.tagchip-mn:hover { border-color: var(--act); color: var(--act); }
+
+/* 右栏截图格上的两个小件：进多选的小按钮、选择态里的全选/删掉条。
+   栏只有 190px 宽，所以这两个都按「一行放得下」的尺寸做。 */
+.sc-pick {
+  display: inline-flex; align-items: center; gap: 3px;
+  height: 19px; padding: 0 6px; border-radius: 5px;
+  background: none; border: 1px solid var(--line2); color: var(--tx3);
+  font-size: 9.5px; font-family: inherit; cursor: pointer; flex: none;
+}
+.sc-pick:hover { color: var(--tx2); border-color: var(--tx3); }
+.sc-pick.on { color: var(--act); border-color: var(--act); }
+.sc-pickbar {
+  display: flex; align-items: center; gap: 5px;
+  margin-bottom: 7px; font-size: 10.5px; color: var(--tx3);
+}
+.sc-pickbar b { color: var(--act); font-variant-numeric: tabular-nums; }
+.sc-pickbar .pbtn-mn { height: 22px; padding: 0 8px; font-size: 10.5px; border-radius: 6px; }
+.sc-pickbar .pbtn-mn.danger.on { background: rgba(255,107,74,.9); color: #fff; border-color: transparent; }
+/* 选择态里的缩略图：勾上的加一圈琥珀，跟截图库里的 .shot-c.on 是同一个意思 */
+.shotcellwrap.sel .shotcell-mn { border-color: var(--act); box-shadow: 0 0 0 1px var(--act) inset; }
 .shot-img { position: relative; display: block; aspect-ratio: 16 / 9; background: #000; }
 .shot-img img { width: 100%; height: 100%; object-fit: cover; display: block; }
 /* 秒数徽标：截帧的价值一半在「这是第几分钟」，不写就只是一张图 */
@@ -3820,3 +3936,50 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
 }
 .shot-del:hover { color: var(--bad); border-color: rgba(255, 107, 74, .34); background: rgba(255, 107, 74, .08); }
 .shot-del.on { color: var(--bad); border-color: rgba(255, 107, 74, .5); background: rgba(255, 107, 74, .14); }
+
+/* ===== 灯箱（截图大图）=====
+   整屏一个东西：上面说清「这是什么」，中间是图，底下一条胶片。
+   上一版是居中的一张小卡片 —— 图只有几百像素，下面一大片黑，翻下一张要按箭头
+   二十次。这一版把图放到最大，胶片条一次能看到十几张，拖一下就到位。 */
+.lbox {
+  position: fixed; inset: 0; z-index: 95; background: #0A0A0A;
+  display: flex; flex-direction: column;
+}
+.lbox-top {
+  flex: none; display: flex; align-items: center; gap: 14px;
+  padding: 12px 18px; border-bottom: 1px solid var(--line);
+}
+.lbox-top .t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.lbox-top .t b { font-size: 14px; font-weight: 650; color: var(--tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lbox-top .t span { font-size: 12px; color: var(--tx3); font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lbox-top .a { flex: none; display: flex; align-items: center; gap: 8px; }
+
+.lbox-body { flex: 1; min-height: 0; position: relative; display: flex; align-items: center; justify-content: center; padding: 14px 64px; }
+/* 撑满可用区域再 contain：480P 的截帧按原尺寸摆，在 1440 屏上只占中间一小块，
+   看板书还得眯眼。撑开 + contain 不会变形，只是放大。 */
+.lbox-body img { width: 100%; height: 100%; object-fit: contain; display: block; border-radius: 8px; }
+.lbox-nav {
+  position: absolute; top: 50%; transform: translateY(-50%);
+  width: 40px; height: 64px; display: grid; place-items: center;
+  border: 1px solid var(--line2); background: rgba(20, 18, 15, .82);
+  color: var(--tx2); border-radius: 10px; cursor: pointer;
+}
+.lbox-nav:hover:not(:disabled) { background: var(--act); color: #1A1000; border-color: transparent; }
+.lbox-nav:disabled { opacity: .22; cursor: default; }
+.lbox-nav.l { left: 12px; transform: translateY(-50%) rotate(180deg); }
+.lbox-nav.r { right: 12px; }
+
+/* 胶片条：横向滚动，当前张带琥珀边并自动滚到中间 */
+.lbox-strip {
+  flex: none; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+  padding: 10px 18px 14px; border-top: 1px solid var(--line);
+  scrollbar-width: thin;
+}
+.lbox-strip button {
+  flex: none; width: 108px; height: 62px; padding: 0; border-radius: 6px;
+  border: 1px solid transparent; background: #000; cursor: pointer; overflow: hidden;
+  opacity: .55; transition: opacity .12s var(--ease), border-color .12s var(--ease);
+}
+.lbox-strip button:hover { opacity: .9; }
+.lbox-strip button.on { opacity: 1; border-color: var(--act); }
+.lbox-strip img { width: 100%; height: 100%; object-fit: cover; display: block; }

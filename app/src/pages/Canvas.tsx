@@ -12,20 +12,29 @@ import { Outline } from './canvas/Outline'
 import {
   brief, markParts, safeName, toIndentText, toJson, toMarkdown, toOpml, xCount,
 } from './canvas/exporters'
-import { FloatTools, NodeEditor, NodeTools, NoteBadge, NoteFloat, NoteEntry, shownText } from './canvas/NodeEditor'
+/* FloatTools 不再从这里引：多选只剩底部那一条批量条（见下面 2085 行附近的说明）。
+   组件本身留在 NodeEditor 里，NodeTools 跟它共用那套样式。 */
+import { NodeEditor, NodeTools, NoteBadge, NoteFloat, NoteEntry, shownText } from './canvas/NodeEditor'
 import { MindNode as MindNodeView, type MindData } from './canvas/MindNode'
 import { NODE_TYPES as BLOCK_TYPES, typeOf, type NodeType } from './canvas/blocks'
 import { buildSvg as svgOf } from './canvas/svgout'
 import { autoLayout, edgeTypeOf, LAYOUT_CN, LAYOUTS, LS_LAYOUT, LS_MINIMAP, lsFlag, lsPick, lsSetFlag, subtreeIds, type LayoutMode } from './canvas/autolayout'
 import type { Base } from '../lib/api'
 import { ContextMenu, MENU_COLORS, cloneWithNewIds, getClip, setClip, type MenuState } from './canvas/ContextMenu'
+/* 缩略图 vs 原图：卡片一律走 thumbUrl（后端现生成 WebP 并缓存），
+   灯箱一律走 fullUrl。两个函数放在 lib/herd 里跟截图库共用同一套地址规则 ——
+   别在这个文件里再拼一遍 '/shots/' + file，拼错一处就又是一次全量原图。 */
+import { thumbUrl, thumbFallback, fullUrl } from '../lib/herd'
 import { ShapeThumb } from './canvas/ShapeThumb'
 
 // 画布：导图存本机（canvas_maps 表），可拉 XMind / Obsidian 等来源。
 // 保持深色专业风 —— 主界面变浅了，画布不跟着变（用户 2026-10-21 定的）。
 
 export type TNode = { id: string; text: string; note?: string; col?: string; type?: NodeType; children?: TNode[] }
-type MapRow = { id: string; lesson_id: string; lesson_ids?: string[]; title: string; src: string; src_id: string | null; updated_ts: string; age: string; shape?: any; nodes?: number | null }
+type MapRow = { id: string; lesson_id: string; lesson_ids?: string[]; title: string; src: string; src_id: string | null; updated_ts: string; age: string; shape?: any; nodes?: number | null
+  /* 后端补的讲次人话标题：[{id, title, chapter, n}]。分组抬头显示「第 5 讲 · 进制转换」用它，
+     拿不到就退回 lesson_id —— 不编标题。 */
+  lesson_titles?: { id: string; title?: string; chapter?: string; n?: number }[] }
 type Src = { id: string; name: string; kind: string; how: string; ready: boolean; connected: boolean; state: string; hint?: { field?: string; label?: string; eg?: string; help?: string } }
 /* 某个来源里的一条可导入笔记。id 是相对路径/云端 id（服务端刻意不给绝对路径），
    bytes/mtime 用来在界面上说清「这一条多大、什么时候改的」，不编、不估算。 */
@@ -262,6 +271,32 @@ export function Canvas({ base, openReq, topHost }: {
       return next
     })
   }, [])
+  /* 整批替换：框选和「全选」这两个动作给的是**一整个集合**，不是「加一个」。
+     原来只有 setSel(一个 id, 加/不加) 这一个口子，框选完 24 个节点以后
+     selSet 还是空的 —— 底部批量条永远不出现，Del 也只删得掉最后一次点中的那个。
+     这就是「多选操作逻辑不对」的根子：框选只画了 ReactFlow 自己的 selected，
+     没进到我们这套「唯一真相」里。 */
+  /* 框选刚刚结束。为的是吃掉松手那一下补发的 onNodeClick（见下面 onSelectionEnd）。
+     用 ref 不用 state：它只在同一次交互里活一瞬，进 state 反而会多渲染一帧。 */
+  const boxEndRef = useRef(false)
+  /* 框选进行中。ReactFlow 的 onSelectionStart/End 给的就是这两个时机。
+     为什么要有它：框选**过程中** selSet 还是空的（要等松手才收进来），
+     但那时屏幕上已经被框住的节点全亮着选中态、并且各挂一条工具条。
+     光靠 selSet 判断「多选」在拖动期间永远是假，所以单独立一个 boxing。 */
+  const [boxing, setBoxing] = useState(false)
+  /* 框选过程中实时累积「被扫到的节点 id」。
+     只写 ref、不 setState —— 每帧 setState 会让 nodes 重建再回灌 ReactFlow，
+     就是注释里那个 React #185 的自激环。松手时才一次性交给 setSelMany。 */
+  const boxAcc = useRef<string[]>([])
+  const boxingRef = useRef(false)
+  boxingRef.current = boxing
+
+  const setSelMany = useCallback((ids: string[]) => {
+    const next = ids.slice()
+    setSel0(next[next.length - 1] || null)
+    selectionRef.current = { sel: next[next.length - 1] || null, set: next }
+    setSelSet(next)
+  }, [])
   const [fold, setFold] = useState<Record<string, 1>>({})
   /* 正在原地编辑的节点。null = 没有编辑。
      带 mode 是因为「改标题」和「改备注」共用一个编辑态：同一时刻只能开一个，
@@ -273,6 +308,12 @@ export function Canvas({ base, openReq, topHost }: {
   const [pop, setPop] = useState<{ id: string; kind: 'color' } | null>(null)
   /* 批量条上的色板浮层开关（选中多个时那一整条）。 */
   const [bulkPop, setBulkPop] = useState(false)
+  /* 底部快捷键提示是否还露着。默认露，进编辑视图 6 秒后自动收。
+     它是「第一次用」的说明，不是常驻 UI —— 一直挂着只会挡画布。
+     收起后把鼠标移上去还能再叫出来（onMouseEnter），不设手动关闭按钮：
+     加个 × 等于为一个提示条再做一个状态管理，不值。 */
+  const [hintOn, setHintOn] = useState(true)
+  const hintT = useRef<number>(0)
   const [pos, setPos] = useState<Record<string, { x: number; y: number }>>({})
   /* 版面模式：横树 / 竖树 / 放射。跟着画布存本机（sd.cv.layout），
      下次打开还是上次选的那个 —— 布局偏好是「我的习惯」，不是这张图的属性。 */
@@ -289,6 +330,58 @@ export function Canvas({ base, openReq, topHost }: {
   const histRef = useRef<string[]>([])
   const hiRef = useRef(-1)
   const [find, setFind] = useState('')
+  /* 搜索框：原来是左栏里一块常驻区域，占着侧栏本来就不多的高度。
+     现在改成 Ctrl+F 呼出的浮条 —— 不用的时候一条都不占。 */
+  const [findOpen, setFindOpen] = useState(false)
+  /* 绑定讲次面板。画布挂在哪几讲以前只能在新建时定死，之后改不了 ——
+     这条口子补上：选完直接调 note_rebind（只改绑定关系，不动树）。 */
+  const [bindOpen, setBindOpen] = useState(false)
+  const [bindIds, setBindIds] = useState<string[]>([])
+  const [bindBusy, setBindBusy] = useState(false)
+  const [bindQ, setBindQ] = useState('')
+  /* 保存绑定：调 note_rebind（只改绑定关系）。失败了如实说，不假装成功。 */
+  const saveBind = useCallback(async () => {
+    if (!mapId) { setToast('这张画布还没存过，先随便改一下让它落库'); return }
+    setBindBusy(true)
+    try {
+      const r = await callTool<any>('note_rebind', { map_id: mapId, lesson_ids: bindIds }, { write: true })
+      if (!r.ok) { setToast('绑定没改成：' + (r.error || '未知原因')); return }
+      const unk = (r.data && r.data.unknown) || []
+      if (unk.length) {
+        setToast('有 ' + unk.length + ' 个讲次本机找不到，没绑上去：' + unk.slice(0, 3).join('、'))
+      } else {
+        setToast(bindIds.length ? ('已挂到 ' + bindIds.length + ' 讲') : '已解绑全部讲次')
+      }
+      setBindOpen(false)
+      list.run()
+    } finally { setBindBusy(false) }
+  }, [mapId, bindIds, list])
+  /* 讲次清单：面板打开时才向 list_lessons 要。
+     ⚠ 不能读 base.subjects[].lessons —— 为了首屏体积，那一坨已经从 /api/base 里摘掉了，
+     现在那里只有 dur_total。拿它遍历必然得到空数组（这就是第一版面板空着的原因）。
+     按科目逐个取，取回来按 subject 归好；拿不到就如实空着，不编讲次。 */
+  const [allLessons, setAllLessons] = useState<{ id: string; title: string; subject: string }[]>([])
+  const [bindLoading, setBindLoading] = useState(false)
+  useEffect(() => {
+    if (!bindOpen || allLessons.length) return
+    let cancelled = false
+    setBindLoading(true)
+    ;(async () => {
+      const out: { id: string; title: string; subject: string }[] = []
+      for (const sj of (base as any).subjects || []) {
+        const r = await callTool<any>('list_lessons', { subject: sj.id })
+        if (cancelled) return
+        for (const g of (r?.data?.groups || [])) {
+          for (const l of (g.lessons || [])) {
+            out.push({ id: String(l.id), title: String(l.title || l.id), subject: String(sj.id) })
+          }
+        }
+      }
+      if (!cancelled) setAllLessons(out)
+    })().finally(() => { if (!cancelled) setBindLoading(false) })
+    return () => { cancelled = true }
+  }, [bindOpen, allLessons.length, base])
+  const findRef = useRef<HTMLInputElement | null>(null)
   const [hits, setHits] = useState<string[]>([])
   const [hitIx, setHitIx] = useState(0)
   const [showSrc, setShowSrc] = useState(false)
@@ -510,11 +603,30 @@ export function Canvas({ base, openReq, topHost }: {
     setXmMsg('已推给 XMind（' + (d.tool || '') + '）')
   }
 
+  /* 打开一张已存过的画布。
+     ⚠ 必须按 id（note_open），不能按 (讲次, 来源, 来源id) 三元组（note_load）：
+     三元组拼出来的 id 是「一讲一张」的年代留下的 —— 同一讲下只要有两张 local 画布，
+     note_load 永远返回拼 id 那一张，于是点 B 卡打开的是 A 的内容：
+     标题换成了 B（它是从卡片上取的），里面画的却还是 A 的节点树。
+     实测就是「点『探针临时画布』，标题对了，节点全是『函数的单调性』的」。
+     顺手也修掉了「整库导入回来的画布点不开」—— 那种 id 带文件指纹，三元组拼不出来。 */
   const openMap = useCallback(async (m: MapRow) => {
-    const r = await callTool('note_load', { lesson_id: m.lesson_id, src: m.src, src_id: m.src_id })
+    const r = await callTool('note_open', { map_id: m.id })
     const d: any = r.data || {}
-    const t: TNode = d.tree && d.tree.id ? d.tree : newTree(m.title)
-    setMapId(m.id); setTitle(m.title || '未命名画布'); setSrc(m.src); setTree(t)
+    if (!r.ok || !d.map) {
+      /* 打不开就说打不开。以前这里会兜一棵 newTree(m.title) 的空树 ——
+         人看到的是「打开了一张空画布」，会以为是自己的内容丢了。 */
+      setMsg('打不开「' + (m.title || '未命名') + '」：' + (r.error || '本机没有这张画布'))
+      return
+    }
+    const t: TNode = d.tree && d.tree.id ? d.tree : newTree(d.map.title || m.title)
+    setMapId(d.map.id); setTitle(d.map.title || '未命名画布'); setSrc(d.map.src || 'local')
+    setLidOv((d.map.lesson_ids || [])[0] || d.map.lesson_id || '')
+    // 把这张画布当前的绑定读进面板，打开就是它现在的状态（不是空的）
+    setBindIds((d.map.lesson_ids && d.map.lesson_ids.length)
+      ? d.map.lesson_ids.map(String)
+      : (d.map.lesson_id ? [String(d.map.lesson_id)] : []))
+    setTree(t)
     setSel(null); setFold({}); setPos({}); setDirty(false)
     commit([JSON.stringify(t)], 0); pre.current = null
     setView('edit')
@@ -541,6 +653,29 @@ export function Canvas({ base, openReq, topHost }: {
      lessonId：不落库、不假造一张空图，只把挂载讲次定下来，然后开一张新的空白画布；
      真正的 note_save 由用户第一次改动触发（跟平时新建一张的行为一致）。 */
   const openReqRef = useRef<number>(0)
+  /* 提示条自动收起：进了编辑视图就起个 6 秒的钟，到点收掉。
+     每次切进编辑视图重来一次（人在这一页待久了再看也还是能 hover 叫出来）。 */
+  useEffect(() => {
+    if (view !== 'edit') return
+    setHintOn(true)
+    clearTimeout(hintT.current)
+    hintT.current = window.setTimeout(() => setHintOn(false), 6000)
+    return () => clearTimeout(hintT.current)
+  }, [view])
+
+  /* Ctrl/Cmd+F：在这一页是「搜节点」，不跳全局搜索。
+     全局那边（App.tsx）遇到画布页只派发 'cv:find' 事件，这里接住。 */
+  useEffect(() => {
+    if (view !== 'edit') return
+    const onFind = () => {
+      setFindOpen(true)
+      window.setTimeout(() => findRef.current?.focus(), 30)
+      window.setTimeout(() => findRef.current?.select(), 40)
+    }
+    window.addEventListener('cv:find', onFind)
+    return () => window.removeEventListener('cv:find', onFind)
+  }, [view])
+
   useEffect(() => {
     if (!openReq || openReq.nonce === openReqRef.current) return
     openReqRef.current = openReq.nonce
@@ -582,13 +717,21 @@ export function Canvas({ base, openReq, topHost }: {
         commit(stack, stack.length - 1)
       }
       pre.current = null
-      const r = await callTool('note_save', { lesson_id: lid, title, tree: t, src }, { write: true })
+      /* 保存必须带上「我在存哪一张」。
+         不带 map_id 时服务端按 (讲次, 来源, 来源id) 三元组重新拼一个 id ——
+         同一讲下只要有两张画布，拼出来的永远是其中一张，于是「打开 B、改一下」
+         会把内容写进 A，A 的内容被整个盖掉。
+         这个坑是真踩过的：一张 49 节点的用户画布被一次探针改成了 59 节点。
+         只要手上已经有 mapId（openMap / note_open 都会设），就必须按 id 存。 */
+      const saveArgs: Record<string, any> = { lesson_id: lid, title, tree: t, src }
+      if (mapId) saveArgs.map_id = mapId
+      const r = await callTool('note_save', saveArgs, { write: true })
       const d: any = r.data || {}
       if (d.map?.id) setMapId(d.map.id)
       setDirty(false)
       list.run()
     }, 900)
-  }, [hist, hi, lid, title, src, list]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hist, hi, lid, title, src, list, mapId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const push = useCallback((next: TNode) => {
     if (pre.current === null) pre.current = JSON.stringify(tree)
@@ -918,6 +1061,49 @@ export function Canvas({ base, openReq, topHost }: {
   /* laid 里每个节点带自己的宽度（按文字估的，190~360）和盒子高度。
      换布局只改坐标；拖过的节点因为 pos 覆盖优先，压根不动。 */
   const laid = useMemo(() => (tree ? layout(tree, mdMode, fold, pos) : []), [tree, mdMode, fold, pos])
+  /* 备注浮层展开时，被它盖住的节点要**让开**。
+     浮层现在挂在节点侧面，但画布上节点密的时候仍会压到邻居 —— 压住了就等于
+     遮住了别人正在对着看的内容。这里的做法是：测出浮层在屏幕上的矩形，
+     凡是跟它相交的节点，整支往上/下推开够用的距离；浮层收起后偏移清零，
+     节点自己滑回原位（动画由 .react-flow__node 的 transition 给出）。
+     偏移只加在渲染坐标上，不写进 tree、不进撤销栈 —— 它不是内容改动。 */
+  /* 备注浮层一开一关，避让就得重算一次。用计数而不是直接用 editing 对象：
+     editing 是个新对象，每次渲染都不同，会带着 useMemo 每帧重算；
+     计数只在「备注编辑态真的开了/关了」时 +1，其余时候稳定。 */
+  const [noteTick, setNoteTick] = useState(0)
+  const prevNoteEdit = useRef<string>('')
+  const nowNoteEdit = editing?.mode === 'note' ? (editing.id || '') : ''
+  if (nowNoteEdit !== prevNoteEdit.current) {
+    prevNoteEdit.current = nowNoteEdit
+    setNoteTick((n) => n + 1)
+  }
+
+  const [dodge, setDodge] = useState<Record<string, number>>({})
+  const dodgeFor = useMemo(() => {
+    const out: Record<string, number> = {}
+    if (!laid.length) return out
+    const el = document.querySelector('[data-note-for]:not([data-note-for=""])') as HTMLElement | null
+    if (!el) return out
+    const r = el.getBoundingClientRect()
+    if (!r.width || !r.height) return out
+    for (const p of laid) {
+      const ne = document.querySelector('.react-flow__node[data-id="' + CSS.escape(p.id) + '"]') as HTMLElement | null
+      if (!ne) continue
+      const b = ne.getBoundingClientRect()
+      const hit = b.right > r.left && b.left < r.right && b.bottom > r.top && b.top < r.bottom
+      if (!hit) continue
+      // 往上推还是往下推：看节点在浮层的哪一半，就近让开，位移最小
+      const up = (b.top + b.height / 2) < (r.top + r.height / 2)
+      out[p.id] = up ? -(r.bottom - b.top + 12) : (r.bottom - b.top + 12)
+    }
+    return out
+  }, [laid, noteTick])
+  useMemo(() => {
+    setDodge((prev) => {
+      const a = JSON.stringify(prev), b = JSON.stringify(dodgeFor)
+      return a === b ? prev : dodgeFor
+    })
+  }, [dodgeFor])
   /* 图片块的预览基址：文件型来源的画布借 /noteimg/<来源> 读原文件（引用式）；
      本机画布的图都在 /shots /assets 下，绝对路径，用不着它。 */
   const imgBase = FILE_SRC_SET.has(src) ? '/noteimg/' + src : ''
@@ -933,10 +1119,16 @@ export function Canvas({ base, openReq, topHost }: {
     return laid.map((p) => {
       const n = byId[p.id]
       const kids = (n.children || []).length
+      /* 避让偏移：有就加上，没有就是 0。
+         它只改渲染坐标，不写 tree、不进撤销栈 —— 节点让开不是内容改动，
+         进了栈的话「撤销」会把节点挪回去，人以为自己的编辑被吞了。 */
+      const dy = dodge[p.id] || 0
       return {
-        id: p.id, type: 'mind', position: { x: p.x, y: p.y },
-        // 显式给尺寸：不给的话 ReactFlow 第一帧量不到节点，连线画不出来。
-        // 宽度必须跟渲染出来的一致 —— CSS 里那条 max-width 用的是同一个估算。
+        id: p.id, type: 'mind', position: { x: p.x, y: p.y + dy },
+        /* 尺寸：只给 width/height 让 ReactFlow 知道首帧参考值，**不写 style**。
+           写 style 会把外层 wrapper 钉死，而内层 .cvnode 是按内容自适应的 ——
+           两套宽度一冲突，ReactFlow 算多选包围盒时就偏，框会框不住节点。
+           让它自己量，量出来多少就是多少，包围盒和可见范围永远一致。 */
         width: p.w, height: p.h,
         selected: selSet.includes(p.id),
         data: {
@@ -961,12 +1153,24 @@ export function Canvas({ base, openReq, topHost }: {
           onDelete: (id: string) => delMany([id]),
           onNote: (id: string) => setEditing({ id, mode: 'note' }),
           onCommit: commitText, onCancel: cancelEdit,
+          /* 打字中：只把值写进 tree，不结束编辑、不关编辑框。
+             这样画布那道 900ms 防抖的自动保存才真的会跑 —— 否则写一半切走就没了。 */
+          onLiveText: (id: string, v: string) => {
+            const t = treeRef.current
+            if (!t) return
+            const nd = findNode(t, id)
+            if (!nd || nd.text === v) return
+            const nt: TNode = JSON.parse(JSON.stringify(t))
+            const nx = findNode(nt, id)
+            if (nx) nx.text = v
+            push(nt)
+          },
           onSaveNote: saveNote, onCloseNote: () => setEditing(null),
         } as MindData,
         draggable: true,
       } as Node
     })
-  }, [laid, tree, fold, selSet, editing, pop, addChild, addSibling, toggleFold, setColFor, delMany, commitText, cancelEdit, saveNote, imgBase])
+  }, [laid, tree, fold, selSet, editing, pop, addChild, addSibling, toggleFold, setColFor, delMany, commitText, cancelEdit, saveNote, imgBase, dodge])
   const edges: Edge[] = useMemo(() => {
     if (!tree) return []
     const out: Edge[] = []
@@ -1026,6 +1230,7 @@ export function Canvas({ base, openReq, topHost }: {
      节点的 class 还是原来那份。）多选条 / pop 同理，一并进签名。 */
   const rfSig = useMemo(() => nodes.map((x) => x.id + ':' + (x.selected ? 1 : 0) + ':' +
     (x.position?.x ?? 0) + ',' + (x.position?.y ?? 0) + ':' + (x.width ?? 0) + 'x' + (x.height ?? 0) + ':' +
+
     /* type 必须进签名：不进的话点「换类型」之后 nodes 重建、签名没变，
        闸门把这次回灌挡掉，节点还画成原来那一型（跟之前 editing 那个坑同源）。 */
     (x.data?.type || '') + ':' +
@@ -1049,6 +1254,7 @@ export function Canvas({ base, openReq, topHost }: {
   const foldManyRef = useRef(foldMany); foldManyRef.current = foldMany
   const foldAllRef = useRef(foldAll); foldAllRef.current = foldAll
   const setSelRef = useRef(setSel); setSelRef.current = setSel
+  const setSelManyRef = useRef(setSelMany); setSelManyRef.current = setSelMany
   const delManyRef = useRef(delMany); delManyRef.current = delMany
   const addChildRef = useRef(addChild); addChildRef.current = addChild
   const closeMenu = useCallback(() => { setMenu(null) }, [])
@@ -1405,11 +1611,20 @@ export function Canvas({ base, openReq, topHost }: {
   const maps = list.data?.maps || []
   // 左栏列表的行：本讲 → 本科 → 全部。就在现有的 maps 上筛，不额外请求。
   const allMaps: MapRow[] = list.data?.maps || []
-  const lvRows = lvFilter === 'lesson'
-    ? allMaps.filter((m) => String((m.lesson_ids && m.lesson_ids[0]) || m.lesson_id || '') === String(lid || ''))
-    : lvFilter === 'subject'
-      ? allMaps.filter((m) => mSubj(m) === curSubject())
-      : allMaps
+  /* 左栏列表：本讲 → 本科 → 全部。
+     ⚠ 「本讲」这一档必须**永远包含当前正在编辑的那张**，哪怕它挂的讲次跟当前讲不同。
+     以前只按 lid 相等筛，于是打开一张挂在别的讲上的画布后，左栏里根本看不到它 ——
+     用户的话是「当前画布它不算画布是吗」。现在先按讲次筛，再把当前那张并进来。 */
+  const lvRows = (() => {
+    const base = lvFilter === 'lesson'
+      ? allMaps.filter((m) => String((m.lesson_ids && m.lesson_ids[0]) || m.lesson_id || '') === String(lid || ''))
+      : lvFilter === 'subject'
+        ? allMaps.filter((m) => mSubj(m) === curSubject())
+        : allMaps
+    const curRow = mapId ? allMaps.find((m) => m.id === mapId) : null
+    if (curRow && !base.some((m) => m.id === curRow.id)) return [curRow, ...base]
+    return base
+  })()
 
   const shotsAll = galList.data?.shots || []
 
@@ -1419,6 +1634,14 @@ export function Canvas({ base, openReq, topHost }: {
         onChange={(e) => { setTitle(e.target.value); setDirty(true); if (tree) scheduleSave(tree) }} />
       <span className={'cvst' + (dirty ? ' wait' : ' ok')}>{dirty ? '还没存' : '已存本机'}</span>
       <span className="cvnum">{n} 个节点</span>
+      {/* 挂在哪几讲：以前**只能建的时候定**，之后再也改不了（用户原话：
+          「讲次绑定的画布没有办法更改绑定的讲次」）。这里给一颗按钮开面板，
+          改完直接调 note_rebind —— 只改绑定关系，不动树，也不进撤销栈。 */}
+      <button className={"cvbtn" + (bindOpen ? " on" : "")} title="这张画布挂在哪几讲"
+        onClick={() => setBindOpen((v) => !v)}>
+        <Icon n="courses" size={14} />
+        <em>{bindIds.length ? "挂 " + bindIds.length + " 讲" : "没挂讲次"}</em>
+      </button>
       <span className="cvdiv" />
       <button className="cvbtn" title="回到画布库" onClick={() => setView('gallery')}><Icon n="chev" size={14} /><em>全部画布</em></button>
       {/* 版面：三种自动布局 + 整理。这一组挨着「全部画布」放 ——
@@ -1480,35 +1703,46 @@ export function Canvas({ base, openReq, topHost }: {
       </button>
     </>
   )
+  /* 库顶栏。原来是一条平铺的按钮带：两个 tab、五个筛选/排序、一个新建，
+     十颗控件同样的长相、同样的字号，只有颜色淡浓之分 —— 眼睛要在里面现找。
+     现在按「看什么 / 怎么筛 / 动手」分三段，中间用 .cvbar-sp 撑开：
+       · 左：画布 / 图库（带数字，一眼知道有多少）
+       · 中：过滤 + 排序（只在当前 tab 有意义的那几颗）
+       · 右：新建（这一页唯一的主行动，单独站一边，用实心琥珀） */
   const galleryBar = (
     <>
-      <span className={'cvtab' + (tab === 'map' ? ' on' : '')} role="button" tabIndex={0}
-        onClick={() => setTab('map')} onKeyDown={(e) => { if (e.key === 'Enter') setTab('map') }}>
-        画布 <b>{maps.length}</b>
-      </span>
-      <span className={'cvtab' + (tab === 'shot' ? ' on' : '')} role="button" tabIndex={0}
-        onClick={() => setTab('shot')} onKeyDown={(e) => { if (e.key === 'Enter') setTab('shot') }}>
-        图库 <b>{galList.data?.total ?? shotsAll.length}</b>
-      </span>
-      <span className="cvdiv" />
+      <div className="cvbar-seg" role="tablist" aria-label="看什么">
+        <button className={'cvseg-t' + (tab === 'map' ? ' on' : '')} role="tab" aria-selected={tab === 'map'}
+          onClick={() => setTab('map')}>画布<b>{maps.length}</b></button>
+        <button className={'cvseg-t' + (tab === 'shot' ? ' on' : '')} role="tab" aria-selected={tab === 'shot'}
+          onClick={() => setTab('shot')}>图库<b>{galList.data?.total ?? shotsAll.length}</b></button>
+      </div>
+      <span className="cvbar-sp" />
       {tab === 'map' ? (
         <>
-          <button className={'cvbtn' + (galAll ? ' on' : '')} onClick={() => setGalAll(true)}><em>全部</em></button>
-          <button className={'cvbtn' + (galAll ? '' : ' on')} onClick={() => setGalAll(false)}><em>{SUBJNAME[curSubject()] || curSubject()}</em></button>
-          <span className="cvdiv" />
-          <button className={'cvbtn' + (sortBy === 'recent' ? ' on' : '')} onClick={() => setSortBy('recent')}><em>最近修改</em></button>
-          <button className={'cvbtn' + (sortBy === 'nodes' ? ' on' : '')} onClick={() => setSortBy('nodes')}><em>节点多</em></button>
-          <span className="cvdiv" />
-          <button className="cvbtn act" onClick={newMap}><Icon n="plus" size={14} /><em>新建画布</em></button>
+          <div className="cvbar-group" role="group" aria-label="范围">
+            <button className={'cvpick' + (galAll ? ' on' : '')} onClick={() => setGalAll(true)}>全部</button>
+            <button className={'cvpick' + (galAll ? '' : ' on')} onClick={() => setGalAll(false)}>
+              {SUBJNAME[curSubject()] || curSubject()}
+            </button>
+          </div>
+          <div className="cvbar-group" role="group" aria-label="排序">
+            <button className={'cvpick' + (sortBy === 'recent' ? ' on' : '')} onClick={() => setSortBy('recent')}
+              title="按最后修改时间排">最近</button>
+            <button className={'cvpick' + (sortBy === 'nodes' ? ' on' : '')} onClick={() => setSortBy('nodes')}
+              title="按节点多少排">节点多</button>
+          </div>
+          <button className="cvmk" onClick={newMap}><Icon n="plus" size={14} />新建画布</button>
         </>
       ) : (
         <>
-          {(['', 'frame', 'canvas', 'upload', 'file'] as const).map((o) => (
-            <button key={o || 'all'} className={'cvbtn' + (originF === o ? ' on' : '')} onClick={() => setOriginF(o)}>
-              <em>{o ? (ORIGIN_CN[o] || o) : '全部来源'}</em>
-            </button>
-          ))}
-          <span className="cvdiv" />
+          <div className="cvbar-group" role="group" aria-label="来源">
+            {(['', 'frame', 'canvas', 'upload', 'file'] as const).map((o) => (
+              <button key={o || 'all'} className={'cvpick' + (originF === o ? ' on' : '')} onClick={() => setOriginF(o)}>
+                {o ? (ORIGIN_CN[o] || o) : '全部'}
+              </button>
+            ))}
+          </div>
           <input className="cvfind-inp" value={q} placeholder="搜标题 / 讲次…" onChange={(e) => setQ(e.target.value)} />
         </>
       )}
@@ -1596,10 +1830,12 @@ export function Canvas({ base, openReq, topHost }: {
       }
       if (mod && (e.key === 'a' || e.key === 'A')) {
         e.preventDefault()
+        /* 全选 = 除根以外的全部（根删不掉，选进去只会让批量条上那个数字虚高）。
+           必须走 setSelMany 写进 selSet：以前这里只 setRfNodes 改了 ReactFlow 的
+           selected，我们的「唯一真相」还是空的 —— 全选之后批量条照样不出现。 */
         const all: string[] = []
-        walkAll(t, (nd) => { all.push(nd.id) })
-        setSel0(all[all.length - 1] || null)
-        setRfNodes((ns) => ns.map((x: any) => ({ ...x, selected: x.id !== t.id })))
+        walkAll(t, (nd) => { if (nd.id !== t.id) all.push(nd.id) })
+        setSelManyRef.current(all)
         return
       }
       /* ? 打开快捷键表。别只看 e.key === '?' —— 有些键盘布局 shift+/ 给的就是 '/'，
@@ -1664,16 +1900,50 @@ export function Canvas({ base, openReq, topHost }: {
      以前是一整片网格，六张卡散着摆，谁属于哪门课只靠卡底一枚小标签，
      等于让人自己找。现在先给组标题（科目名 + 张数 + 进度条），组内再排卡。
      组序跟导航里「学」那一路一致（base.subjects 的顺序），没挂科目的排最后。 */
+  /* 图库分组：**科目 → 讲次** 两层，不是一个笼统的「计算机 3 张」。
+     以前只按科目分一层，一门课十几张画布全摊在一起，找「第 3 讲那张」得一张张看标题。
+     现在科目下面再按讲次分：没挂讲次的单独一档（那是真没归位，不是猜的）。
+     讲次名用后端给的 lesson_titles（人话标题），拿不到就退回 lesson_id —— 不编。 */
   const groups = (() => {
     const order: string[] = []
     for (const sj of base.subjects || []) order.push(sj.id)
     for (const m of sorted) { const k = mSubj(m); if (!order.includes(k)) order.push(k) }
-    const map = new Map<string, MapRow[]>()
-    for (const k of order) map.set(k, [])
-    for (const m of sorted) map.get(mSubj(m))!.push(m)
-    return [...map.entries()]
+    const bySubj = new Map<string, MapRow[]>()
+    for (const k of order) bySubj.set(k, [])
+    for (const m of sorted) bySubj.get(mSubj(m))!.push(m)
+    return [...bySubj.entries()]
       .filter(([, arr]) => arr.length > 0)
-      .map(([k, arr]) => ({ id: k, name: SUBJNAME[k] || (k ? k : '没挂科目'), rows: arr }))
+      .map(([k, arr]) => {
+        // 科目内再按讲次分。顺序按讲次在第几讲排（lect 越靠前越上面）。
+        const byLes = new Map<string, { key: string; title: string; n: number | null; rows: MapRow[] }>()
+        for (const m of arr) {
+          const ids = (m.lesson_ids && m.lesson_ids.length) ? m.lesson_ids : (m.lesson_id ? [m.lesson_id] : [])
+          if (!ids.length) {
+            const g = byLes.get('') || { key: '', title: '没挂讲次', n: null, rows: [] }
+            g.rows.push(m); byLes.set('', g)
+            continue
+          }
+          for (const lid of ids) {
+            const lt = (m.lesson_titles || []).find((x: any) => x && x.id === lid)
+            const g = byLes.get(lid) || {
+              key: lid,
+              title: (lt && lt.title) || lid,
+              n: lt && typeof lt.n === 'number' ? lt.n : null,
+              rows: [],
+            }
+            // 同一张画布挂多讲时会在多个讲次下出现 —— 这是对的，它确实属于那几讲
+            if (!g.rows.some((r) => r.id === m.id)) g.rows.push(m)
+            byLes.set(lid, g)
+          }
+        }
+        const lesions = [...byLes.values()].sort((a, b) => {
+          if (a.n == null && b.n == null) return a.key.localeCompare(b.key)
+          if (a.n == null) return 1
+          if (b.n == null) return -1
+          return a.n - b.n
+        })
+        return { id: k, name: SUBJNAME[k] || (k ? k : '没挂科目'), lesions, rows: arr }
+      })
   })()
 
   const shotShown = shotsAll
@@ -1698,7 +1968,10 @@ export function Canvas({ base, openReq, topHost }: {
         setGalIdx((i) => Math.max(0, i - 1)); loadGal()
       }}
       onToCanvas={async (x) => {
-        await insertImage({ title: x.title, url: x.url || ('/shots/' + x.file) })
+        /* 这里是「把这张图插进导图节点」，不是列表缩略图 —— 节点里那张图
+           会被放大看（导出 PNG/SVG 时更是要拿高清）。所以用**原图地址**，
+           跟灯箱同理：列表用缩略图，真正看到图的地方用原图。 */
+        await insertImage({ title: x.title, url: x.url || fullUrl(x.file) })
       }}
       onUpload={uploadImage}
     />
@@ -1732,8 +2005,7 @@ export function Canvas({ base, openReq, topHost }: {
               <>
                 {groups.map((g) => (
                   <section className="gsec" key={g.id || '_none'}>
-                    {/* 组标题：科目名 + 张数 + 这科讲次走完了多少。
-                        讲次进度只看 base.kpi.subjects 里的真数，取不到就不画那条线。 */}
+                    {/* 科目抬头：科目名 + 总张数。下面再按讲次分小节。 */}
                     <div className="gsec-hd">
                       <span className="gsec-c" style={{ background: clsColor(g.id) }} />
                       <b>{g.name}</b>
@@ -1744,15 +2016,41 @@ export function Canvas({ base, openReq, topHost }: {
                         <Icon n="plus" size={12} />新建
                       </button>
                     </div>
+                    {g.lesions.map((L) => (
+                    <div className="gles" key={g.id + '|/' + (L.key || '_none')}>
+                      {/* 讲次小节抬头：第 N 讲 · 标题。
+                          没挂讲次的收起尾单独一档，灰一点 —— 那是真没归位，不是猜的。 */}
+                      <div className={"gles-hd" + (L.key ? '' : ' none')}>
+                        {L.n != null ? <em>第 {L.n} 讲</em> : null}
+                        <span>{L.title}</span>
+                        <i>{L.rows.length}</i>
+                        <span className="gsec-ln" />
+                      </div>
                     <div className="cvgalgrid">
                       {g.rows.map((m) => (
                         <div className={'gcardwrap' + (delMapArm === m.id ? ' arming' : '')} key={m.id}>
-                          <button className={'gcard' + (m.id === mapId ? ' on' : '')} onClick={() => openMap(m)} title={m.title || '未命名'}>
-                            <span className="gthumb"><ShapeThumb shape={m.shape} /></span>
+                          {/* data-mapid：卡片自己的身份。以前一张卡在 DOM 上认不出是哪张图 ——
+                              标题可能重名（「函数的单调性」就有两张），节点数会变，
+                              自动化测试只能靠「看起来像」去猜，猜错就点错图。
+                              给个稳定属性之后，深链和测试都能精确命中。 */}
+                          <button className={'gcard' + (m.id === mapId ? ' on' : '')} data-mapid={m.id}
+                            onClick={() => openMap(m)} title={m.title || '未命名'}>
+                            {/* viewBox 必须跟 CSS 里的实际高度对上：ShapeThumb 默认 H=118，
+                                容器放高之后 preserveAspectRatio 会按 300:118 等比缩放，
+                                上下各留一条黑边、内容反而变小 —— 看着像缩略图坏掉了。
+                                这里显式给 W/H，让 viewBox 就是它真实占据的那块。
+                                改缩略图高度时，这三个数字（CSS 的 .gthumb height、
+                                .sthumb.mind height、这里的 H）必须一起改。 */}
+                            <span className="gthumb"><ShapeThumb shape={m.shape} W={340} H={189} /></span>
+                            {/* 信息分左右两栏：左边标题、右边节点数/时间，标签再单独一行。
+                                以前是一整列竖着堆在左侧，右边空一大片 —— 卡看着又窄又散。
+                                左右都有内容之后，视觉重心才落在卡中央。 */}
                             <span className="gmeta">
-                              <b>{m.title || '未命名'}</b>
-                              <span className="gsrc">
-                                {m.nodes != null ? m.nodes + ' 个节点 · ' : ''}{m.age}
+                              <span className="gmeta-top">
+                                <b>{m.title || '未命名'}</b>
+                                <span className="gsrc">
+                                  {m.nodes != null ? m.nodes + ' 个节点 · ' : ''}{m.age}
+                                </span>
                               </span>
                               <span className="gtags">
                                 <span className="gtag">{SRCNAME[m.src] || m.src}</span>
@@ -1772,6 +2070,8 @@ export function Canvas({ base, openReq, topHost }: {
                         </div>
                       ))}
                     </div>
+                    </div>
+                    ))}
                   </section>
                 ))}
               </>
@@ -1794,8 +2094,14 @@ export function Canvas({ base, openReq, topHost }: {
                 <div className={'shotwrap' + (delArm === x.id ? ' arming' : '')} key={x.id}>
                   <button className="shotcard" title={x.title || ''}
                     onClick={() => { setGalIdx(shotShown.findIndex((y: any) => y.id === x.id)); setShowGal(true) }}>
+                    {/* 卡上这张是**缩略图**（480 宽 WebP），不是原图。
+                        图库一屏 58 张，原图合计 2.7 MB；缩略图约 0.8 MB，省七成多。
+                        而且卡片本身只有 200 多像素宽 —— 发原图过去，浏览器还要
+                        再缩一次再扔掉，纯白下载。
+                        要看原图就点开（灯箱里那张仍是 /shots/ 原图，见下面 Lightbox）。 */}
                     <span className="sw">
-                      <img src={x.url || ('/shots/' + x.file)} alt={x.title || ''} loading="lazy" />
+                      <img src={thumbUrl(x.file)} alt={x.title || ''} loading="lazy"
+                        onError={(e) => thumbFallback(e, x.file)} />
                       {x.pos_sec != null ? <em>{clock(x.pos_sec)}</em> : null}
                     </span>
                     <span className="sm">
@@ -1889,76 +2195,8 @@ export function Canvas({ base, openReq, topHost }: {
               onPick={focusNode} onMove={moveLevel}
               onToggleFold={(id) => setFold((f) => { const x = { ...f }; if (x[id]) delete x[id]; else x[id] = 1; return x })} />
           )}
-          {/* 搜索：从「只有下一个」升级成结果列表。跨画布那档要按 maps 逐张 note_load，
-              所以默认关着，勾上才扫，且最多 20 张。 */}
-          <div className="cvph sub">
-            <b>搜索节点</b>
-            <label className="cvxlab" title="按 note_list 逐张翻，最多 20 张">
-              <input type="checkbox" checked={xmap} onChange={(e) => setXmap(e.target.checked)} />
-              <span>跨画布</span>
-            </label>
-          </div>
-          <div className="cvfind">
-            <Icon n="search" size={14} />
-            <input value={find} placeholder="搜词或备注" onChange={(e) => setFind(e.target.value)} />
-          </div>
-          {xmap ? (
-            <div className="cvhits">
-              <span>
-                {xbusy
-                  ? `还在扫… ${xres?.done ?? 0}/${xres?.total ?? 0} 张`
-                  : `扫了 ${xres?.total ?? 0} 张 · 命中 ${xres?.rows.length ?? 0} 条`}
-              </span>
-            </div>
-          ) : hits.length ? (
-            <div className="cvhits">
-              <span>{hitIx + 1} / {hits.length}</span>
-              <button className="cvmini" onClick={() => { setHitIx((i) => (i + 1) % hits.length); setSel(hits[(hitIx + 1) % hits.length]) }}>下一个</button>
-            </div>
-          ) : find.trim() ? <div className="cvhits none">没找到</div> : null}
-          {find.trim() ? (
-            xmap ? (
-              xres?.rows.length ? (
-                <div className="cvsr">
-                  {xres.rows.slice(0, 20).map((r, i) => {
-                    const m = maps.find((x) => x.id === r.map)
-                    const mk = markParts(r.text, find)
-                    return (
-                      <button key={i} className="cvsr-row"
-                        onClick={() => { if (m) jumpTo(m, '', r.text) }}
-                        title={r.note || r.text}>
-                        <b>{r.title}</b>
-                        <span>
-                          {mk ? <>{mk.pre}<mark>{mk.hit}</mark>{mk.post}</> : r.text}
-                        </span>
-                        {r.note ? <em>{brief(r.note, 32)}</em> : null}
-                      </button>
-                    )
-                  })}
-                  {xres.rows.length > 20 ? <div className="cvhits none">只列前 20 条，缩小搜索词再试</div> : null}
-                </div>
-              ) : xbusy ? null : <div className="cvhits none">所有画布里都没找到</div>
-            ) : hits.length ? (
-              <div className="cvsr">
-                {hits.slice(0, 20).map((id) => {
-                  const nx = findNode(tree, id)
-                  if (!nx) return null
-                  const mk = markParts(nx.text || '', find) || markParts(nx.note || '', find)
-                  const isNote = !markParts(nx.text || '', find)
-                  return (
-                    <button key={id} className={'cvsr-row' + (id === sel ? ' on' : '')}
-                      onClick={() => { setHitIx(hits.indexOf(id)); focusNode(id) }}>
-                      <span>
-                        {mk ? <>{mk.pre}<mark>{mk.hit}</mark>{mk.post}</> : (nx.text || '（空）')}
-                      </span>
-                      {isNote ? <em>备注里命中</em> : (nx.note ? <em>{brief(nx.note, 32)}</em> : null)}
-                    </button>
-                  )
-                })}
-                {hits.length > 20 ? <div className="cvhits none">命中 {hits.length} 条，只列前 20</div> : null}
-              </div>
-            ) : null
-          ) : null}
+          {/* 搜索不再占左栏：那一栏本来就窄，再塞一块常驻搜索区，大纲就被压得只剩几行。
+              现在整块搬到 Ctrl+F 呼出的浮条里（见下面 .cvfindbar），不用时一条都不占。 */}
         </aside>
 
         {/* ── 舞台 ──
@@ -1967,7 +2205,7 @@ export function Canvas({ base, openReq, topHost }: {
             左侧栏也跟着动」就是它。正解是在按下阶段 preventDefault 取消自动滚动，
             平移本身交给 ReactFlow 的 panOnDrag=[1,2]。auxclick 也要拦：有些环境下
             中键会触发「后台打开 / 粘贴」。 */}
-        <div className={"cvstage" + (mdMode === 'mind' ? '' : ' cvlayer-vert')} ref={stageRef}
+        <div className={"cvstage" + (mdMode === 'mind' ? '' : ' cvlayer-vert') + (boxing || selSet.length > 1 ? ' bulk-sel' : '') + (Object.keys(dodge).length ? ' dodging' : '')} ref={stageRef}
           onMouseDownCapture={(e) => { if (e.button === 1) e.preventDefault() }}
           onAuxClick={(e) => { if (e.button === 1) { e.preventDefault(); e.stopPropagation() } }}
         >
@@ -1982,7 +2220,21 @@ export function Canvas({ base, openReq, topHost }: {
             /* Shift/Ctrl 点选：React Flow 的 multiSelectionKeyCode 只管键盘，
                鼠标事件里带没带修饰键它不看 —— 加减选由 setSel(id, add) 自己算，
                nodes 再按 selSet 把 selected 画出来。 */
-            onNodeClick={(e, node) => setSel(node.id, !!(e.shiftKey || e.ctrlKey || e.metaKey))}
+            onNodeClick={(e, node) => {
+              /* 框选松手那一下补发的单击不算数 —— 它属于框选，不属于「点这个节点」。
+                 不拦的话整批会被它冲成一个，等于白框。 */
+              if (boxEndRef.current) { boxEndRef.current = false; return }
+              /* Shift / Ctrl 点选加一个进去。这里读 selSet 而不是 selectionRef：
+                 框选刚结束时 selSet 是整批，补一个 Shift 点击要加在这一批上。 */
+              const add = !!(e.shiftKey || e.ctrlKey || e.metaKey)
+              if (add) {
+                const cur = selectionRef.current.set
+                const next = cur.includes(node.id) ? cur.filter((x) => x !== node.id) : [...cur, node.id]
+                setSelMany(next)
+                return
+              }
+              setSel(node.id)
+            }}
             onPaneClick={() => { setSel(null); if (menuRef.current) setMenuRef.current(null) }}
             onNodeContextMenu={onNodeContextMenu}
             onPaneContextMenu={onPaneContextMenu}
@@ -2003,6 +2255,37 @@ export function Canvas({ base, openReq, topHost }: {
             selectionOnDrag
             selectionKeyCode={null}
             multiSelectionKeyCode={null}
+            /* 框选结束那一下，把 ReactFlow 自己选中的那批**收进**我们的 selSet。
+               这一条以前是缺的，所以拖出一个框、屏幕上 24 个节点都亮着，
+               底部批量条却不见、按 Del 也删不掉 —— 因为 selSet 还是空的。
+               为什么挂在 onSelectionEnd 而不是 onSelectionChange：
+               后者在拖动过程中每一帧都触发，而它一 setState 就会让 nodes 重建、
+               再回灌 ReactFlow 的 store，正是注释里那个 React #185 的自激环。
+               onSelectionEnd 只在松手时响一次，只写不回读，环起不来。 */
+            onSelectionStart={() => { setBoxing(true); boxAcc.current = [] }}
+            /* 框选过程中每帧把当前选中的收进 ref（只读 DOM 状态，不 setState），
+               同时把用户正在画的这个框的矩形记下来 —— 松手后要照原样留住它。 */
+            onSelectionChange={({ nodes: selNodes }: any) => {
+              if (!boxingRef.current) return
+              boxAcc.current = (selNodes || []).map((n: any) => n.id)
+            }}
+            onSelectionEnd={() => {
+              setBoxing(false)
+              /* 用拖动过程中累积的那份，不再读 ReactFlow 的 selected。
+                 因为 onSelectionEnd 触发时，ReactFlow 的 store 里 selected 可能已经
+                 被它自己清掉或只剩一个 —— 实测读到的是「1 个」，框了 7 个也只剩 1 个。
+                 累积集合在 onSelectionChange 里填（那个每帧都触发，但这里只往 ref 里塞，
+                 不 setState，所以不会引起 React #185 的回灌环）。 */
+              const picked = boxAcc.current.slice()
+              boxAcc.current = []
+              if (!picked.length) return
+              /* 松手后 ReactFlow 还会补一次 onNodeClick（鼠标正落在某个节点上），
+                 而 onNodeClick 里的 setSel(一个 id) 会把刚框出来的整批冲掉 ——
+                 框了 24 个、松手只剩 1 个，人看就是「框选被强制结束了」。
+                 所以框选一结束就立个标记，让紧接着那次单击作废。 */
+              boxEndRef.current = true
+              setSelMany(picked)
+            }}
             panOnDrag={[1, 2]}
             fitView fitViewOptions={{ padding: 0.18 }}
             minZoom={0.25} maxZoom={2.2}
@@ -2045,33 +2328,20 @@ export function Canvas({ base, openReq, topHost }: {
             <Controls showInteractive={false} className="cvctrl" />
           </ReactFlow>
 
-          {/* 跟手工具条：贴着鼠标走的那条。多选时出现；单选时由节点自己那条挂下方。
-              放在 ReactFlow 外面 —— 它是 stage 的子元素但不属于 react-flow 的 transform
-              层，位置自己算，跟着 pan/zoom 走为止。 */}
-          {selSet.length > 1 ? (
-            <FloatTools
-              ids={selSet}
-              hostRef={stageRef}
-              col={selNode?.col || ''}
-              pop={pop && selSet.includes(pop.id) ? 'color' : null}
-              onAddChild={() => selNode && addChild(selNode.id)}
-              onAddSibling={() => selNode && addSibling(selNode.id)}
-              onToggleFold={() => selSet.forEach((id) => toggleFold(id))}
-              onColor={() => setPop((c) => (c ? null : { id: selSet[0] || '', kind: 'color' }))}
-              onPickColor={(c: string) => setColFor(selSet, c)}
-              onClosePop={() => { setPop(null); setSel(null) }}
-              onDelete={() => delMany(selSet)}
-              onNote={() => selNode && setEditing({ id: selNode.id, mode: 'note' })}
-            />
-          ) : null}
 
-          {/* 选中节点时贴底浮一条，别让人回右栏找按钮。
-              选了多个就整条换成批量条 —— 这时候「加子节点」没有唯一对象，不该还摆在那儿。 */}
+          {/* 多选时**只有一条**工具条：贴底那条批量条。
+              以前这里还有一条「跟着鼠标走」的 FloatTools，两条同时在屏上：
+              跟手那条会压住节点、挡着字，而且它的按钮（折叠/上色/删除）
+              跟底部批量条是同一批动作 —— 同一个动作两个入口、两种位置，
+              用户原话就是「多选到底该点哪个」。现在把跟手那条收掉：
+              框选完手一松，鼠标就在框的右下角，而底部那条本来就是常驻且不挡内容的。
+              （FloatTools 组件本身留着，NodeEditor 里还有单节点那条在用同一套样式。） */}
           {count > 1 ? (
             <div className="cvselbar bulk">
               <span className="cvtxt">已选 {count} 个节点</span>
               <span className="cvdiv" />
-              <button onClick={() => setBulkPop((v) => !v)}><Icon n="tag" size={14} />上色</button>
+              <button className={bulkPop ? 'on' : ''} title="给这 N 个节点上同一种颜色"
+                onClick={() => setBulkPop((v) => !v)}><Icon n="tag" size={14} />上色</button>
               {bulkPop ? (
                 <span className="cvbulkpop">
                   {MENU_COLORS.map((c) => (
@@ -2082,8 +2352,16 @@ export function Canvas({ base, openReq, topHost }: {
                     onClick={() => { setColFor(selSet, ''); setBulkPop(false) }}><Icon n="x" size={10} /></button>
                 </span>
               ) : null}
-              <button onClick={() => delMany(selSet)}><Icon n="trash" size={14} />删掉这 {count} 个</button>
-              <button onClick={() => setSel(null)}>取消选择</button>
+              {/* 折叠 / 展开整批：多选之后最常见的第二个动作是「把这些支收起来」。
+                  以前只有跟手那条上有，收掉它之后必须挪到这儿，否则那个功能就丢了。 */}
+              <button title="把这些节点下的分支收起来"
+                onClick={() => foldMany(selSet, 'fold')}><Icon n="chev" size={14} />收起</button>
+              <button title="把这些节点下的分支展开"
+                onClick={() => foldMany(selSet, 'open')}><Icon n="down" size={14} />展开</button>
+              <span className="cvdiv" />
+              <button className="danger" title="删掉选中的这些（Del）"
+                onClick={() => delMany(selSet)}><Icon n="trash" size={14} />删掉这 {count} 个</button>
+              <button title="取消选择（Esc）" onClick={() => setSel(null)}><Icon n="x" size={14} />取消</button>
             </div>
           ) : selNode ? (
             <div className="cvselbar">
@@ -2094,15 +2372,169 @@ export function Canvas({ base, openReq, topHost }: {
               <button disabled={selNode.id === tree.id || tree.id === selNode.id} onClick={() => delMany([selNode.id])}><Icon n="trash" size={14} />删除</button>
             </div>
           ) : (
-            <div className="cvhint">双击改字 · Tab 加子节点 · Enter 加同级 · Del 删除 · Shift 点选多个 · 拖空白框选</div>
+            /* 这行提示原来**一直**挂在画布底部。它是给第一次用的人看的，
+               用熟了就是一块常驻横幅，还正好压在画布底部那一条上。
+               现在：进编辑视图 6 秒后自己收起；想再看就把鼠标移上去（hover 复现）。
+               收起/展开走 .cvhint 的 CSS 过渡，不做常亮呼吸。 */
+            <div className={"cvhint" + (hintOn ? "" : " gone")} onMouseEnter={() => setHintOn(true)}>
+              双击改字 · Tab 加子节点 · Enter 加同级 · Del 删除 · Shift 点选多个 · 拖空白框选
+            </div>
           )}
+
+          {/* ── 绑定讲次面板 ──
+              以前画布挂在哪几讲只能建的时候定，之后再也改不了。
+              这里给一个可搜索的多选清单：按科目分组、勾选即改，
+              点「保存」才发 note_rebind（只改绑定关系，不动树、不进撤销栈）。 */}
+          {bindOpen ? (
+            <div className="cvbindbar" onKeyDown={(e) => { if (e.key === 'Escape') setBindOpen(false) }}>
+              <div className="cvfindrow">
+                <Icon n="courses" size={14} />
+                <input value={bindQ} placeholder="搜讲次标题 / 科目" onChange={(e) => setBindQ(e.target.value)} />
+                <button className="cvfindx" title="关闭" aria-label="关闭" onClick={() => setBindOpen(false)}>
+                  <Icon n="x" size={13} />
+                </button>
+              </div>
+              <div className="cvbindlist">
+                {(() => {
+                  const kw = bindQ.trim().toLowerCase()
+                  const rows = allLessons.filter((l) => !kw
+                    || l.title.toLowerCase().indexOf(kw) >= 0
+                    || (SUBJNAME[l.subject] || l.subject).toLowerCase().indexOf(kw) >= 0)
+                  if (bindLoading && !allLessons.length) return <div className="cvhits none">正在读讲次…</div>
+                  if (!rows.length) return <div className="cvhits none">没有匹配的讲次</div>
+                  const groups2 = new Map<string, typeof rows>()
+                  for (const r of rows) {
+                    const arr = groups2.get(r.subject) || []
+                    arr.push(r); groups2.set(r.subject, arr)
+                  }
+                  return [...groups2.entries()].map(([sid, list]) => (
+                    <div className="cvbindgrp" key={sid}>
+                      <div className="cvbindhd">
+                        <span className="gsec-c" style={{ background: clsColor(sid) }} />
+                        {SUBJNAME[sid] || sid}
+                        <i>{list.length}</i>
+                      </div>
+                      {list.slice(0, 200).map((l) => {
+                        const on = bindIds.indexOf(l.id) >= 0
+                        return (
+                          <button key={l.id} className={"cvbindrow" + (on ? " on" : "")}
+                            onClick={() => setBindIds((p) => on ? p.filter((x) => x !== l.id) : [...p, l.id])}>
+                            <span className={"cvbindbox" + (on ? " on" : "")}>{on ? <Icon n="check" size={10} /> : null}</span>
+                            <span className="cvbindtx">{l.title}</span>
+                          </button>
+                        )
+                      })}
+                    </div>
+                  ))
+                })()}
+              </div>
+              <div className="cvbindfoot">
+                <span className="muted">{bindIds.length ? "挂 " + bindIds.length + " 讲" : "没挂讲次"}</span>
+                <span className="sp" />
+                <button className="cvmini" onClick={() => setBindIds([])}>全部解绑</button>
+                <button className="cvmk" disabled={bindBusy} onClick={saveBind}>
+                  {bindBusy ? "保存中…" : "保存"}
+                </button>
+              </div>
+            </div>
+          ) : null}
+
+          {/* ── Ctrl+F 呼出的搜索条 ──
+              原来这块常驻左栏：那一栏本来就窄（大纲要占一大半），再塞搜索区，
+              大纲只剩三行。现在浮在舞台右上角，不用时一条都不占。
+              跨画布那档要按 note_list 逐张翻，默认关着，勾上才扫，最多 20 张。 */}
+          {findOpen ? (
+            <div className="cvfindbar" onKeyDown={(e) => {
+              if (e.key === 'Escape') { e.stopPropagation(); setFindOpen(false); setFind('') }
+              if (e.key === 'Enter' && hits.length) {
+                setHitIx((i) => (i + 1) % hits.length)
+                focusNode(hits[(hitIx + 1) % hits.length])
+              }
+            }}>
+              <div className="cvfindrow">
+                <Icon n="search" size={14} />
+                <input ref={findRef} value={find} placeholder="搜节点文字或备注"
+                  onChange={(e) => setFind(e.target.value)} />
+                <label className="cvxlab" title="按 note_list 逐张翻，最多 20 张">
+                  <input type="checkbox" checked={xmap} onChange={(e) => setXmap(e.target.checked)} />
+                  <span>跨画布</span>
+                </label>
+                {hits.length ? (
+                  <button className="cvmini" title="下一个（Enter）"
+                    onClick={() => { setHitIx((i) => (i + 1) % hits.length); focusNode(hits[(hitIx + 1) % hits.length]) }}>
+                    {hitIx + 1}/{hits.length} 下一个
+                  </button>
+                ) : null}
+                <button className="cvfindx" title="关闭（Esc）" aria-label="关闭搜索"
+                  onClick={() => { setFindOpen(false); setFind('') }}>
+                  <Icon n="x" size={13} />
+                </button>
+              </div>
+              {xmap ? (
+                <div className="cvhits">
+                  <span>
+                    {xbusy
+                      ? `还在扫… ${xres?.done ?? 0}/${xres?.total ?? 0} 张`
+                      : `扫了 ${xres?.total ?? 0} 张 · 命中 ${xres?.rows.length ?? 0} 条`}
+                  </span>
+                </div>
+              ) : find.trim() && !hits.length ? <div className="cvhits none">没找到</div> : null}
+              {find.trim() ? (
+                xmap ? (
+                  xres?.rows.length ? (
+                    <div className="cvsr">
+                      {xres.rows.slice(0, 20).map((r, i) => {
+                        const m = maps.find((x) => x.id === r.map)
+                        const mk = markParts(r.text, find)
+                        return (
+                          <button key={i} className="cvsr-row"
+                            onClick={() => { if (m) jumpTo(m, '', r.text) }}
+                            title={r.note || r.text}>
+                            <b>{r.title}</b>
+                            <span>{mk ? <>{mk.pre}<mark>{mk.hit}</mark>{mk.post}</> : r.text}</span>
+                            {r.note ? <em>{brief(r.note, 32)}</em> : null}
+                          </button>
+                        )
+                      })}
+                      {xres.rows.length > 20 ? <div className="cvhits none">只列前 20 条，缩小搜索词再试</div> : null}
+                    </div>
+                  ) : xbusy ? null : <div className="cvhits none">所有画布里都没找到</div>
+                ) : hits.length ? (
+                  <div className="cvsr">
+                    {hits.slice(0, 20).map((id) => {
+                      const nx = findNode(tree, id)
+                      if (!nx) return null
+                      const mk = markParts(nx.text || '', find) || markParts(nx.note || '', find)
+                      const isNote = !markParts(nx.text || '', find)
+                      return (
+                        <button key={id} className={'cvsr-row' + (id === sel ? ' on' : '')}
+                          onClick={() => { setHitIx(hits.indexOf(id)); focusNode(id) }}>
+                          <span>{mk ? <>{mk.pre}<mark>{mk.hit}</mark>{mk.post}</> : (nx.text || '（空）')}</span>
+                          {isNote ? <em>备注里命中</em> : (nx.note ? <em>{brief(nx.note, 32)}</em> : null)}
+                        </button>
+                      )
+                    })}
+                    {hits.length > 20 ? <div className="cvhits none">命中 {hits.length} 条，只列前 20</div> : null}
+                  </div>
+                ) : null
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
-        {/* ── 右栏：检查器 ── */}
-        <aside className="cvright">
+        {/* ── 右栏：检查器 ──
+            没选中任何节点时**整条收起**：一个空面板常驻右侧，白白吃掉约 260px 画布宽度，
+            而它的内容（节点文字/备注/颜色/结构）在没有选中时全是空的，点了也没用。
+            选中一个或一批就滑出来，取消选择再滑回去。过渡交给 CSS。 */}
+        <aside className={"cvright" + (count > 0 ? "" : " shut")} aria-hidden={count === 0}>
           <div className="cvph">
             <b>检查器</b>
-            <span>{selNode ? '已选 1 个' : '没选节点'}</span>
+            {/* 多选时检查器里那块「节点文字 / 备注」编辑的是主选那一个 ——
+                标题里必须说清是哪一个，否则人以为自己在批量改文字。 */}
+            <span>
+              {count > 1 ? <>已选 <b>{count}</b> 个 · 下面只改「{selNode?.text?.slice(0, 12) || '—'}」</>
+                : count === 1 ? '已选 1 个' : '没选节点'}
+            </span>
           </div>
           {selNode ? (
             <div className="cvinsp">
@@ -2387,7 +2819,12 @@ function Lightbox({ items, index, onIndex, onClose, onRename, onDel, onToCanvas,
     <div className="lbox" role="dialog" aria-modal="true" onClick={onClose}>
       <div className="lbox-in" onClick={(e) => e.stopPropagation()}>
         <div className="lb-stage">
-          <img src={x.url || ('/shots/' + x.file)} alt={x.title || ''} />
+          {/* 灯箱这里**必须是原图**。
+              缩略图只有 480 宽，截帧上的板书字在灯箱里会被放大成一团糊 ——
+              点开就是为了看清字的，给它一张缩过的图等于白点。
+              所以规则只有一条：列表/卡片用缩略图，点开用原图。
+              （x.url 是服务端给的原图地址；没有就自己拼 /shots/。） */}
+          <img src={x.url || fullUrl(x.file)} alt={x.title || ''} />
           {items.length > 1 ? (
             <>
               <button className="lb-nav prev" onClick={() => go(-1)} title="上一张"><Icon n="chev" size={18} /></button>

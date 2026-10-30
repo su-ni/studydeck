@@ -5,6 +5,7 @@
     → http://127.0.0.1:8770
 """
 import asyncio
+import hashlib
 import io
 import json
 import os
@@ -17,8 +18,10 @@ import urllib.request
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import (HTMLResponse, JSONResponse, FileResponse, PlainTextResponse,
-                               RedirectResponse, StreamingResponse)
+                               RedirectResponse, Response, StreamingResponse)
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
+from starlette.middleware.gzip import GZipMiddleware
 
 if __package__ in (None, ""):                       # 允许 python server/main.py 直接跑
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -29,6 +32,52 @@ else:
                    store, streamer, tools, xmind)
 
 app = FastAPI(title="研学台 StudyDeck")
+
+
+# ---------------------------------------------------------------- 压缩
+# 两类响应一律不压：
+#   SSE（/api/agent/stream、/api/tool/{name}/run）—— 压了就不是「边算边出」，
+#       而是在 gzip 里攒一坨再吐，打字机效果变成「盯半天，然后一下子全出来」；
+#   已经压过的二进制（视频 / 截图 / 图片资产）—— gzip 一遍只白烧 CPU，一点不小
+#       （实测 30MB 的 mp4 压完 29.9MB），而视频这条路上还会让「一边下一边播」变卡。
+_NO_GZIP_PREFIX = ("/api/agent/stream", "/stream/", "/media/", "/shots/",
+                   "/assets/", "/img/", "/noteimg/")
+
+
+def _skip_gzip(path):
+    """要不要绕开压缩。"""
+    p = str(path or "")
+    if p.startswith(_NO_GZIP_PREFIX):
+        return True
+    # 只跳过「带 /run 的 SSE 版」，普通 POST /api/tool/{name} 的 JSON 照压 ——
+    # 那条路经常回几十 KB（shot_list / list_lessons），压不压差好几倍
+    return p.startswith("/api/tool/") and p.endswith("/run")
+
+
+class SkipPathGZip:
+    """GZipMiddleware 的薄包装：路径命中就整段绕过压缩，其余照压。
+
+    为什么不是「给这几条路由显式写一个 Content-Encoding」：Starlette 的
+    GZipResponder 看到响应已有 Content-Encoding 就原样透传，但那样得给每条
+    SSE 路由手搓一个假头，新加一条流式路由忘了写就又回到「不边出字」。
+    在这里按前缀拦一次，等于只登记一处 —— 而且不必管中间件谁包谁。
+
+    为什么直接调 self.zip.app：绕过的是 GZipMiddleware 这一层，
+    下游（路由 + 异常处理）原样执行；不是再套一层，「跳过的跳过」那种绕法。
+    """
+
+    def __init__(self, app, skip=None, **kw):
+        self.skip = skip or _skip_gzip
+        self.zip = GZipMiddleware(app, **kw)
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") == "http" and self.skip(scope.get("path")):
+            await self.zip.app(scope, receive, send)
+            return
+        await self.zip(scope, receive, send)
+
+
+app.add_middleware(SkipPathGZip, minimum_size=1024)
 
 store.init()
 datahub.seed_legacy_mem()
@@ -72,6 +121,41 @@ async def api_asr_transcribe(request: Request):
     return r
 
 
+# 收件箱：用户拖进来 / 粘进来的东西先落盘，再把**路径**交给助手。
+# 为什么不直接塞进对话：模型要的是「这份文件在哪」，不是几十兆 base64；
+# 落了盘它就能用 fs_read / fs_ls 自己看，也能拿去做截图库、题库、素材。
+INBOX_MAX = 60 * 1024 * 1024
+
+
+@app.post("/api/inbox")
+async def api_inbox(request: Request, name: str = "paste.bin", kind: str = ""):
+    data = await request.body()
+    if not data:
+        raise HTTPException(400, "空的，什么都没收到")
+    if len(data) > INBOX_MAX:
+        raise HTTPException(413, "单个文件超过 60MB，太大了")
+    d = os.path.join(config.APP_DATA_DIR, "inbox")
+    os.makedirs(d, exist_ok=True)
+    base = os.path.basename((name or "").replace("\\", "/")) or "paste.bin"
+    # 文件名里除了汉字字母数字，全换成下划线 —— 空格和括号会让命令行工具难处理
+    safe = re.sub(r"[^\w.\-\u4e00-\u9fa5]", "_", base)[:80] or "paste.bin"
+    stamp = time.strftime("%Y%m%d_%H%M%S")
+    path = os.path.join(d, "%s_%s" % (stamp, safe))
+    n = 0
+    while os.path.exists(path):        # 同一秒拖两个同名文件，别互相覆盖
+        n += 1
+        path = os.path.join(d, "%s-%d_%s" % (stamp, n, safe))
+    with open(path, "wb") as f:
+        f.write(data)
+    ext = os.path.splitext(safe)[1].lower()
+    if not kind:
+        kind = ("image" if ext in (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
+                else "text" if ext in (".txt", ".md", ".json", ".csv", ".py", ".ts", ".log")
+                else "file")
+    return {"ok": True, "path": path.replace("\\", "/"), "name": safe,
+            "size": len(data), "kind": kind, "ext": ext}
+
+
 # 实时：前端每 ~100ms 送一块 Int16 PCM，够一句就转出来。
 # 转写是阻塞的（几百毫秒），走线程池，别把事件循环卡住 ——
 # 卡住的话前端那些并发的小块会排队排到天荒地老。
@@ -94,14 +178,44 @@ def api_asr_live_finish(sid: str):
     return asr.live_finish(sid)
 
 
-@app.get("/api/base")
-def api_base():
-    """首屏快照：不含 3790 词全量分组与 781 题正文（那两块按需走工具取）。"""
-    d = datahub.bootstrap()
+def _base_payload(full=False):
+    """首屏快照的完整 dict。
+
+    full=False（默认）时 subjects[] 不下发 lessons（实测 158KB，占整包七成），
+    只给 dur_total / done_n —— 真要用逐讲数据的页面走 list_lessons 工具。
+    done 照旧下发：老界面 web/app.js 在读它，只占 4KB（见 datahub.bootstrap）。
+    """
+    d = datahub.bootstrap(include_lessons=bool(full))
     d["tools"] = tools.registry_public()      # 工具注册表（Agent 工具台要用）
     d["confirm_tools"] = sorted(config.CONFIRM_TOOLS)
     d["brand"] = {"title": config.APP_TITLE, "subtitle": config.APP_SUBTITLE}
     return d
+
+
+@app.get("/api/base")
+def api_base(request: Request, full: int = 0):
+    """首屏快照。?full=1 回老形状（带每讲的 lessons / done）。
+
+    ETag 用**序列化后的字节**算 sha1，不是时间戳：生成时间每次都变，拿它做校验
+    等于永远「变了」，前端每次都得整包重解析 + 全树重渲染，正是要挡的那个坑。
+    同一个请求参数下内容不变，字节就一样，ETag 自然稳定。
+
+    generated_at 是「这一刻机器几点」，本来就不该参与指纹 —— 它一变，
+    什么都没改也换 ETag。所以算指纹前摘掉它（前端 stableOf 摘的也是这一个字段）。
+    """
+    d = _base_payload(full=bool(full))
+    # 序列化口径跟 FastAPI 默认的 JSONResponse 一致（紧凑分隔符）。
+    # 不用默认的 ", " / ": " —— 空格在 90KB 的包上要多出 20KB，纯属白给。
+    dump = lambda o: json.dumps(o, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+    # 指纹算的正是「去掉 generated_at 之后那份响应」的字节：数据一变字节就变，
+    # 跟时间戳无关（时间戳每次都变，拿它算等于永远「变了」）。
+    etag = '"%s"' % hashlib.sha1(dump(dict(d, generated_at=None))).hexdigest()
+    if request.headers.get("if-none-match") == etag:
+        # 304 不带 body，前端直接复用手上那份（ETag 照样回，方便它续用）
+        return Response(status_code=304, media_type="application/json",
+                        headers={"ETag": etag, "Cache-Control": "no-cache"})
+    return Response(content=dump(d), media_type="application/json",
+                    headers={"ETag": etag, "Cache-Control": "no-cache"})
 
 
 @app.get("/api/tools")
@@ -144,13 +258,20 @@ async def api_perm_set(request: Request):
 
 @app.post("/api/tool/{name}")
 async def api_tool(name: str, request: Request):
+    """跑一个工具（非流式）。
+
+    tools.call 是**同步**的，而且很多工具本来就要跑好几秒（explain_coverage 实测
+    6–7 秒、intake_pick 核课要几十秒）。直接在 async 里调它，整个事件循环在这几秒里
+    一个请求都发不出去：实测那 6.2 秒里 /api/health 全部排在 6.3 秒才回，页面
+    看起来就是「整站卡死」。所以丢进线程池 —— 一条慢工具只该占住它自己那条连接。
+    """
     try:
         body = await request.json()
     except Exception:
         body = {}
     args = body.get("args") or {}
     confirmed = bool(body.get("confirm"))
-    return tools.call(name, args, confirmed=confirmed)
+    return await run_in_threadpool(tools.call, name, args, confirmed=confirmed)
 
 
 @app.post("/api/tool/{name}/run")
@@ -377,7 +498,9 @@ async def api_xmind_callback(request: Request):
         return HTMLResponse(_xmind_cb_html(False, "XMind 那边没给授权：%s %s" % (err, err_desc)))
     if not code:
         return HTMLResponse(_xmind_cb_html(False, "回调里没有 code"))
-    r = xmind.finish_login(code, state)
+    # 换 token 是一次同步外网请求（超时几十秒）。留在事件循环里，
+    # 用户点「登录 XMind」的这几秒里整站都发不出请求。
+    r = await run_in_threadpool(xmind.finish_login, code, state)
     if r.get("error"):
         return HTMLResponse(_xmind_cb_html(False, r["error"]))
     return HTMLResponse(_xmind_cb_html(True, "已连上 XMind（scope=%s）" % (r.get("scope") or "")))
@@ -399,7 +522,8 @@ async def api_xmind_code(request: Request):
         q = urllib.parse.parse_qs(urllib.parse.urlparse(raw).query)
         code2 = (q.get("code") or [""])[0]
         state2 = (q.get("state") or [""])[0]
-    r = xmind.finish_login(code2, state2)
+    # 同 api_xmind_callback：换 token 是同步外网请求，放线程池
+    r = await run_in_threadpool(xmind.finish_login, code2, state2)
     if r.get("error"):
         return {"ok": False, "error": r["error"], "detail": r.get("detail") or ""}
     return {"ok": True, "status": xmind.status()}
@@ -433,10 +557,12 @@ async def api_event(request: Request):
     kind = str(body.get("kind") or "")
     if kind not in ("play", "page", "word_card", "exam_tick", "search", "note"):
         return JSONResponse({"ok": False, "error": "不接受的 kind"}, status_code=400)
-    store.add_event(kind, subject=body.get("subject"), lesson_id=body.get("lesson_id"),
-                    word=body.get("word"), part=body.get("part"),
-                    qno=body.get("qno"), seconds=body.get("seconds") or 0,
-                    payload=body.get("payload"))
+    # 写库是同步 sqlite（要拿锁、要 WAL 落盘）。放线程池：埋点是高频小请求，
+    # 卡住事件循环会让「看视频上报秒数」这种请求排队，进而拖慢正在播的那一页。
+    await run_in_threadpool(
+        store.add_event, kind, body.get("subject"), body.get("lesson_id"),
+        body.get("word"), body.get("part"), body.get("qno"),
+        None, (body.get("seconds") or 0), body.get("payload"))
     return {"ok": True}
 
 
@@ -577,17 +703,141 @@ def index():
     return FileResponse(idx, headers=_OLD_HEADERS)
 
 
+_SHOT_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+              ".webp": "image/webp", ".gif": "image/gif"}
+# 缩略图能生成的源：gif 不进（动图缩成静帧会把「这是会动的」这一点也吃掉）
+_SHOT_THUMB_SRC = (".png", ".jpg", ".jpeg", ".webp", ".bmp")
+_THUMB_DIR = os.path.join(config.APP_DATA_DIR, "thumbs")
+
+
+def _shot_path(rel):
+    """把截图库的相对路径还原成绝对路径，锁死在 data/shots 内。
+
+    单独抽出来是因为 /shots/ 和 /shots/thumb/ 必须用**同一把锁**：
+    两条路由各写一份校验，早晚会有一份先被改松，而松的那份不报错、
+    只会在某天让人从盘上读到不该读的文件。
+    """
+    root = os.path.abspath(os.path.join(config.APP_DATA_DIR, "shots"))
+    p = os.path.abspath(os.path.join(root, str(rel or "").replace("\\", "/")))
+    if not p.startswith(root + os.sep):
+        raise HTTPException(status_code=400, detail="路径越界")
+    return p
+
+
+def _thumb_key(rel, w, src_stat):
+    """缩略图缓存键：原图相对路径 + 宽度 + mtime + size。
+
+    为什么不只用 mtime：同一秒里覆盖一张图很常见（截帧连着存两帧），
+    mtime 秒级精度不够就永远不重建，界面一直显示上一张。
+    带上 size 就把绝大多数「同一秒内换了内容」的情况分开了。
+    """
+    key = "%s|%d|%d|%d" % (rel.replace("\\", "/").lstrip("/"), int(w),
+                           int(src_stat.st_mtime), int(src_stat.st_size))
+    return hashlib.sha1(key.encode("utf-8")).hexdigest()
+
+
+def _thumb_cached(key):
+    """缓存里已经有的那一份（webp 优先，Pillow 没编 webp 时是 jpg）。"""
+    for ext, mt in ((".webp", "image/webp"), (".jpg", "image/jpeg")):
+        p = os.path.join(_THUMB_DIR, key + ext)
+        if os.path.exists(p):
+            return p, mt
+    return None, None
+
+
+def _make_thumb(src, key, w):
+    """按宽 w 等比缩一张 WebP（Pillow 没编 webp 就退 JPEG），返回 (路径, media_type)。
+
+    先写到临时文件再 os.replace：并发的两个请求同时进来了，
+    一个读到的绝不能是另一个写了一半的文件（半张图在界面上就是灰块）。
+    任何一步失败就抛 —— 由调用方退回原图，绝不在这里吞掉异常凑一张空白图：
+    「有张图但糊成一片」比 404 更难查。
+    """
+    from PIL import Image
+    os.makedirs(_THUMB_DIR, exist_ok=True)
+    with Image.open(src) as im:
+        im.load()
+        # 只缩不放：原图本来就比 w 窄时按原样存，放大出来的糊图不如不给
+        if im.width > w:
+            h = max(1, int(round(im.height * (w / float(im.width)))))
+            im = im.resize((w, h), Image.LANCZOS)
+        if im.mode not in ("RGB", "RGBA"):
+            im = im.convert("RGBA" if "A" in im.getbands() else "RGB")
+        tmp = os.path.join(_THUMB_DIR, key + ".part")
+        try:
+            im.save(tmp, "WEBP", quality=82, method=4)
+            final = os.path.join(_THUMB_DIR, key + ".webp")
+            os.replace(tmp, final)
+            return final, "image/webp"
+        except (KeyError, OSError, ValueError):
+            try:
+                os.remove(tmp)
+            except OSError:
+                pass
+            jpg = os.path.join(_THUMB_DIR, key + ".jpg")
+            if im.mode == "RGBA":
+                bg = Image.new("RGB", im.size, (255, 255, 255))
+                bg.paste(im, mask=im.split()[-1])
+                im = bg
+            im.save(jpg, "JPEG", quality=82)
+            return jpg, "image/jpeg"
+
+
+@app.get("/shots/thumb/{rel:path}")
+def shots_thumb(rel: str, w: int = 480):
+    """截图缩略图：原图按宽等比缩，落 data/thumbs 缓存。
+
+    为什么非要有这条：121 张原图平均 35KB，一屏 45 张就是 2.3MB 的原图解码量，
+    列表页滑动像幻灯片。缩略图只读一次原图，之后都是 4–8KB 的静态文件。
+
+    Pillow 不在、图坏了、磁盘写不进去 —— 一律退回原图，绝不 500：
+    缩略图是加速手段，不是功能本身；为了它让整个截图库打不开是本末倒置。
+    """
+    w = int(w or 480)
+    w = max(64, min(1280, w))            # 夹住上下界：w=1 会生成一堆没用的文件
+    p = _shot_path(rel)
+    ext = os.path.splitext(p)[1].lower()
+    if ext not in _SHOT_MIME:
+        raise HTTPException(status_code=403, detail="截图库只放图片")
+    if not os.path.isfile(p):
+        raise HTTPException(status_code=404, detail="截图不存在: %s" % rel)
+    if ext not in _SHOT_THUMB_SRC:
+        # gif 之类不做缩略：直接给原图（还是能显示，只是没变小）
+        return FileResponse(p, media_type=_SHOT_MIME[ext], headers={
+            "Cache-Control": "public, max-age=2592000"})
+    try:
+        key = _thumb_key(rel, w, os.stat(p))
+    except OSError as e:
+        # 刚刚还在，取 stat 时没了（另一处正在清盘）：老实用原图路径去报错
+        raise HTTPException(status_code=404, detail="截图不存在: %s（%s）" % (rel, e))
+    dst, mime = _thumb_cached(key)
+    if not dst:
+        try:
+            dst, mime = _make_thumb(p, key, w)
+        except ImportError:
+            return FileResponse(p, media_type=_SHOT_MIME[ext], headers={
+                "Cache-Control": "public, max-age=2592000",
+                "X-Thumb-Fallback": "no-pillow"})
+        except Exception as e:
+            # 解码失败 / 目录写不进去 / 格式不认识 —— 当缩略图这条路不存在，退回原图。
+            # 头里留一句原因：出来查的时候不用猜是「没生成」还是「生成了但错了」。
+            return FileResponse(p, media_type=_SHOT_MIME[ext], headers={
+                "Cache-Control": "public, max-age=2592000",
+                # 头值只能是 latin-1，Pillow 的报错偶尔带中文/特殊字符，
+                # 直接塞进去会让「退回原图」这件事本身变成 500 —— 那就白兜底了
+                "X-Thumb-Fallback": "failed: " + str(e)[:80].encode(
+                    "ascii", "replace").decode("ascii")})
+    return FileResponse(dst, media_type=mime, headers={
+        "Cache-Control": "public, max-age=2592000"})
+
+
 @app.get("/shots/{rel:path}")
 def shots_static(rel: str):
     """截图库里的图。锁死在 data/shots 内，任何 ../ 都出不去；
     截图是本机自己截的，不会变，所以给一天缓存，不跟其它静态文件那样 no-store。"""
-    root = os.path.abspath(os.path.join(config.APP_DATA_DIR, "shots"))
-    p = os.path.abspath(os.path.join(root, rel.replace("\\", "/")))
-    if not p.startswith(root + os.sep):
-        raise HTTPException(status_code=400, detail="路径越界")
+    p = _shot_path(rel)
     ext = os.path.splitext(p)[1].lower()
-    mime = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
-            ".webp": "image/webp", ".gif": "image/gif"}.get(ext)
+    mime = _SHOT_MIME.get(ext)
     if not mime:
         raise HTTPException(status_code=403, detail="截图库只放图片")
     if not os.path.exists(p):
@@ -824,6 +1074,24 @@ def _warm_kb():
         pass
 
 
+def _quiet_loop():
+    """Windows 上 asyncio 的已知噪音：客户端（浏览器/探针）突然断开时，
+    proactor 在 `_call_connection_lost` 里对已关闭的 socket 再 shutdown 一次，
+    抛 ConnectionResetError。这跟业务无关，但它会顺着事件循环冒到顶层把进程带走
+    —— 实测 2026-10-30：跑完一次探针，服务自己没了。所以在这一层吃掉它。
+    """
+    loop = asyncio.new_event_loop()
+
+    def handler(l, ctx):
+        exc = ctx.get("exception")
+        if isinstance(exc, (ConnectionResetError, ConnectionAbortedError, BrokenPipeError)):
+            return
+        l.default_exception_handler(ctx)
+
+    loop.set_exception_handler(handler)
+    return loop
+
+
 def main():
     import threading
     import uvicorn
@@ -835,7 +1103,12 @@ def main():
     if os.environ.get("SD_OPEN_BROWSER") == "1":
         _open_browser(url)
     threading.Thread(target=_warm_kb, daemon=True, name="kb-warm").start()
-    uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
+    srv = uvicorn.Server(uvicorn.Config(app, host=config.HOST, port=config.PORT,
+                                        log_level="warning"))
+    try:
+        asyncio.run(srv.serve(), loop_factory=_quiet_loop)
+    except TypeError:          # 老 Python 没有 loop_factory，退回默认跑法
+        uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
 
 
 if __name__ == "__main__":

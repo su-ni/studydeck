@@ -63,10 +63,19 @@ export type NodeEditorProps = {
    Enter 提交并退出、Shift+Enter 换行、Esc 放弃、失焦提交。
    失焦提交 + Esc 放弃会打架：Esc 时 textarea 会先 blur 再 keydown，
    所以用 done 这个 ref 把「已经结束过」记住，避免放弃之后又被失焦存一遍。 */
-export function NodeEditor({ text, depth, hasNote, onCommit, onCancel }: NodeEditorProps) {
+export function NodeEditor({ text, depth, hasNote, onCommit, onCancel, onLive }: NodeEditorProps & { onLive?: (v: string) => void }) {
   const [v, setV] = useState(text)
   const ta = useRef<HTMLTextAreaElement | null>(null)
   const done = useRef(false)
+  /* 边打字边落库。
+     以前只有 Enter / 失焦 / Ctrl+Enter 才提交 —— 于是「自动保存」在这个框里
+     根本不存在：写一半切走或崩一下，字就没了，顶栏还一直显示「已存本机」，
+     等于在骗人。这里每敲一下就把最新值往上抛，由画布那边的 900ms 防抖接住写盘。
+     注意区分两个动作：onLive 是「同步显示中的值」，onCommit 是「结束编辑」,
+     只有后者会关掉编辑框、动撤销栈。 */
+  const live = useRef(onLive)
+  live.current = onLive
+  const tRef = useRef<number>(0)
 
   useLayoutEffect(() => {
     const el = ta.current
@@ -75,6 +84,7 @@ export function NodeEditor({ text, depth, hasNote, onCommit, onCancel }: NodeEdi
     el.select()
     // 光标放到末尾更符合「接着写」的直觉；全选留给用户直接覆盖
     autoGrow(el)
+    return () => clearTimeout(tRef.current)
   }, [])
 
   function autoGrow(el: HTMLTextAreaElement) {
@@ -99,7 +109,13 @@ export function NodeEditor({ text, depth, hasNote, onCommit, onCancel }: NodeEdi
         value={v}
         spellCheck={false}
         style={{ fontSize: nodeFont(depth), lineHeight: LINE }}
-        onChange={(e) => { setV(e.target.value); autoGrow(e.target) }}
+        onChange={(e) => {
+          const nv = e.target.value
+          setV(nv); autoGrow(e.target)
+          // 防抖 400ms：比画布写盘那道 900ms 短，让它先落到 tree 上，再由画布存盘
+          clearTimeout(tRef.current)
+          tRef.current = window.setTimeout(() => live.current?.(nv), 400)
+        }}
         onKeyDown={(e) => {
           // 画布自己有一堆全局快捷键（Enter 加同级、Tab 加子节点、Esc 清选择），
           // 编辑时必须先吃掉，否则打字就是在建节点。
@@ -343,12 +359,29 @@ export function shownText(t?: string) {
    双击/悬停时视线就在节点上，跑到右栏改备注是断的 —— 所以就地开一条。
    Ctrl/Cmd+Enter 保存，Esc 收起。失焦不自动提交：备注比标题长，误点一下
    就存会很难受，所以只认显式保存。 */
-export function NoteFloat({ note, onSave, onClose }: { note?: string; onSave: (v: string) => void; onClose: () => void }) {
+export function NoteFloat({ note, onSave, onClose, nodeId }: {
+  note?: string; onSave: (v: string) => void; onClose: () => void; nodeId?: string
+}) {
   const [v, setV] = useState(note || '')
   const ta = useRef<HTMLTextAreaElement | null>(null)
   const done = useRef(false)
+  /* 挂左边还是右边：默认右边，右边放不下就翻到左边。
+     判定用自己这个浮层在视口里的矩形 —— 不去算 ReactFlow 的变换矩阵，
+     那个会跟着缩放/平移变，越算越容易错。
+     ⚠ 为什么不再挂节点正下方：那儿是 NodeTools（悬停工具条）的位置，
+     浮层一出来就被那排按钮盖住，人看不见自己正在写的备注。 */
+  const [side, setSide] = useState<'r' | 'l'>('r')
+  const box = useRef<HTMLDivElement | null>(null)
 
   useLayoutEffect(() => { ta.current?.focus() }, [])
+
+  useLayoutEffect(() => {
+    const el = box.current
+    if (!el) return
+    const r = el.getBoundingClientRect()
+    // 右边越界就翻左边；左边也放不下就维持右边（至少不会跑到屏幕外看不见）
+    if (r.right > window.innerWidth - 8 && r.left - r.width - 20 > 8) setSide('l')
+  }, [])
 
   const finish = (save: boolean) => {
     if (done.current) return
@@ -358,8 +391,10 @@ export function NoteFloat({ note, onSave, onClose }: { note?: string; onSave: (v
   }
 
   return (
-    <div className="cvnotefloat"
-      data-note-float="1"
+    <div className={'cvnotefloat side-' + side} ref={box}
+      /* data-note-for：画布页靠它 getBoundingClientRect() 测量浮层矩形，
+         好让被挡住的节点避让（见 Canvas.tsx 的避让逻辑）。必须有、且是节点 id。 */
+      data-note-float="1" data-note-for={nodeId || ''}
       onMouseDown={(e) => e.stopPropagation()} onClick={(e) => e.stopPropagation()} onDoubleClick={(e) => e.stopPropagation()}>
       <textarea ref={ta} className="cvedit-ta" rows={3} value={v} spellCheck={false}
         placeholder="这个节点的备注（支持 Markdown）"

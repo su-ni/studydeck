@@ -50,6 +50,8 @@ export type MindData = {
   onDelete?: (id: string) => void
   onNote?: (id: string) => void
   onCommit?: (id: string, text: string) => void
+  /* 打字过程中的值（不结束编辑、不动撤销栈），用来让自动保存真的生效 */
+  onLiveText?: (id: string, text: string) => void
   onCancel?: () => void
   onSaveNote?: (id: string, note: string) => void
   onCloseNote?: () => void
@@ -68,6 +70,10 @@ export function MindNode({ id, data, selected }: NodeProps<MindData>) {
     'cvnode', 'd' + Math.min(3, depth),
     side === -1 ? 'lk-left' : '',
     selected ? 'sel' : '',
+    /* 多选（含框选进行中）时打上标记，CSS 靠它把节点工具条压掉。
+       selected 是 ReactFlow 在框选过程中就实时给出的，比 selSet 更早 ——
+       这正是「框选时满屏按钮」能治住的关键。 */
+    (d.multi ?? 0) > 1 ? 'multi-sel' : '',
     d.fold ? 'fold' : '',
     d.busy ? 'editing' : '',
     d.note ? 'hasnote' : '',
@@ -140,11 +146,15 @@ export function MindNode({ id, data, selected }: NodeProps<MindData>) {
       {/* 原地编辑器：双击进入，Enter 存 / Esc 弃。绝对定位挂在节点上，不参与布局。 */}
       {d.busy ? (
         <NodeEditor text={d.text} depth={d.depth} hasNote={!!d.note}
-          onCommit={(v) => d.onCommit?.(id, v)} onCancel={() => d.onCancel?.()} />
+          onCommit={(v) => d.onCommit?.(id, v)} onCancel={() => d.onCancel?.()}
+          onLive={(v) => d.onLiveText?.(id, v)} />
       ) : null}
-      {/* 备注浮条：挂在节点下方，不跑右栏 —— 双击节点时视线就在这儿。 */}
+      {/* 备注浮条：挂在节点**左/右侧**，不挂正下方 —— 正下方是 NodeTools 的位置，
+          挂那儿会被那排按钮盖住。传 nodeId 是为了让画布页测出浮层矩形后，
+          把被挡住的节点挪开（见 Canvas.tsx 的避让逻辑）。 */}
       {d.noteEditing ? (
-        <NoteFloat note={d.note} onSave={(v) => d.onSaveNote?.(id, v)} onClose={() => d.onCloseNote?.()} />
+        <NoteFloat note={d.note} nodeId={id}
+          onSave={(v) => d.onSaveNote?.(id, v)} onClose={() => d.onCloseNote?.()} />
       ) : null}
     </div>
   )

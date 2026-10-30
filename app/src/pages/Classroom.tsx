@@ -5,6 +5,7 @@ import { Icon } from '../components/Icon'
 import { Empty, Skel } from '../components/V6'
 import { Sel } from '../components/Sel'
 import { upName } from '../lib/fmt'
+import { delShots, thumbFallback, thumbUrl, fullUrl } from '../lib/herd'
 import { ShapeThumb } from './canvas/ShapeThumb'
 import { BiliLogin } from '../components/BiliLogin'
 import type { Base, Lesson } from '../lib/api'
@@ -76,6 +77,9 @@ export function Classroom({ base, goCanvas, initSid }: {
   const [started, setStarted] = useState(false)
   // 合流/缓冲态：B 站 dash 首次播放要先落成本地 mp4，这段时间必须给说法
   const [buf, setBuf] = useState(false)
+  // 自建控制条要显示状态：在放还是在停、静音没有
+  const [playing, setPlaying] = useState(false)
+  const [muted, setMuted] = useState(false)
   // 时间轴要用：视频总长 + 当前秒。都从 <video> 自己读，不另算。
   const [dur, setDur] = useState(0)
   const [curSec, setCurSec] = useState(0)
@@ -85,10 +89,12 @@ export function Classroom({ base, goCanvas, initSid }: {
   const accSec = useRef(0)
   const lastPos = useRef(0)
   const lastUp = useRef(0)
-  /* 影院模式：整页铺满，目录和右栏都收起来，只留播放器 + 顶栏一条。
-     不用浏览器原生全屏 —— 原生全屏里 keydown 不再进页面，S 键截帧会失效。
-     所以在页面内自己做「铺满」，Esc 退出。 */
-  const [theater, setTheater] = useState(false)
+  /* 全屏只有一个概念：浏览器原生全屏。
+     以前还自己做过一套「影院模式」（fixed 铺满 + 自制退出按钮），用户第一反应是
+     「全屏和影院什么鬼」——同一个动作两个名字、两个按钮、两种退出方式，谁都会懵。
+     现在：视频自带的那个全屏键 → 触发全屏的是【整个播放区容器】而不是 <video>，
+     所以截图回执、画质这些盖在画面上的东西全都在，Esc 也照常退。 */
+  const screenRef = useRef<HTMLDivElement | null>(null)
 
   const subj = cur.data?.subject ?? subs.find((s) => s.id === sid)
   const les = cur.data?.lesson
@@ -162,8 +168,9 @@ export function Classroom({ base, goCanvas, initSid }: {
      以前是「点了播放才开始合流」：每换一讲都要盯着「正在合成」等十几秒到半分钟，
      一门 171 讲就是 171 次等待。
 
-     现在一进这一讲，就地往后排 12 讲。后台一个工人串行合，人一走（15 分钟没有
-     播放打点）自己停 —— 所以这件事不需要人决定，也不该让人去点。
+     现在一进这一讲，就地往后排 3 讲（够连着看两小时）。后台一个工人串行合，
+     人一走（15 分钟没有播放打点）自己停 —— 所以这件事不需要人决定，也不该让人去点。
+     不一次排整门课：一门 173 讲全合下来是十几 G，而人一节课只看几讲。
      ready 是「这一讲现在能不能秒开」的真实文件判定，不是猜的。 */
   const [ready, setReady] = useState<boolean | null>(null)
   useEffect(() => {
@@ -171,7 +178,7 @@ export function Classroom({ base, goCanvas, initSid }: {
     setReady(null)
     callTool<{ ready: boolean }>('stream_status', { lesson_id: lid })
       .then((r) => setReady(r.ok ? !!r.data?.ready : null)).catch(() => setReady(null))
-    callTool('stream_prefetch', { lesson_id: lid, scope: 'ahead', count: 12 }).catch(() => {})
+    callTool('stream_prefetch', { lesson_id: lid, scope: 'ahead', count: 3 }).catch(() => {})
   }, [lid])
 
   /* ── 截这一帧（S 键）────────────────────────────────────────────
@@ -219,8 +226,10 @@ export function Classroom({ base, goCanvas, initSid }: {
   }, [lid, sid, les?.title, refreshShots.data])
 
   // 右栏缩略图点一下 = 回到那一刻；不带秒数的（普通截图）开原图。
+  // 这里开的是**新标签页里的原图**（不是灯箱、也不是缩略图）——
+  // 「点开看大图」就该给原图，跟截图库灯箱同一条规则。缩略图只用在网格里。
   const seekTo = useCallback((sec: number | null, file: string) => {
-    if (sec == null) { window.open('/shots/' + file, '_blank', 'noopener'); return }
+    if (sec == null) { window.open(fullUrl(file), '_blank', 'noopener'); return }
     const v = vid.current
     if (!v) { setShotMsg('播放器还没起来，先点开播'); return }
     v.currentTime = sec
@@ -242,30 +251,51 @@ export function Classroom({ base, goCanvas, initSid }: {
     return () => window.removeEventListener('keydown', onKey)
   }, [grabFrame])
 
-  // 影院模式：Esc 退出。另外 Space 不该被我们吃掉 —— 留给播放器自己的暂停/播放。
+  /* 空格 = 播放/暂停。原生 controls 被我们拿掉之后，浏览器不再管这个键，
+     而看课的人按空格是肌肉记忆。输入框里打字不管（不然搜索框打不出空格）。 */
   useEffect(() => {
-    if (!theater) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') { e.preventDefault(); setTheater(false) }
+      if (e.key !== ' ' && e.code !== 'Space') return
+      const t = e.target as HTMLElement | null
+      if (t && (/^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName) || t.isContentEditable)) return
+      if (!vid.current) return
+      e.preventDefault()
+      togglePlay()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [theater])
+  }, [])
 
-  /* 原生全屏 → 接管成影院模式。
-     原生全屏里只有 <video> 待在 top layer，截图回执、画质下拉、退出按钮
-     一个都画不出来 —— 人按 S 会觉得「全屏就截不了图」，其实截了也看不见。
-     所以一进原生全屏就退出来、换成我们自己的铺满，屏幕上该有的都还在。 */
+  /* 全屏：让【整个播放区】进全屏，不是 <video>。
+     视频原生的那颗全屏键只能把 video 丢进 top layer —— 那里面只有一条视频流，
+     截图回执、画质下拉一个都画不出来（用户原话「全屏就截不了图」）。
+     所以干脆不用原生控制条（见下面自建的那条），全屏键由我们自己画：
+     点它就是 screenRef.requestFullscreen()，视觉一样是全屏，但该有的都在。
+     用 fullscreenchange 同步「现在是不是全屏」，图标跟着换。 */
+  const [isFs, setIsFs] = useState(false)
   useEffect(() => {
-    const onFs = () => {
-      if (document.fullscreenElement) {
-        try { document.exitFullscreen?.() } catch { /* 退不出来就留在影院模式里，不影响 */ }
-        setTheater(true)
-      }
-    }
+    const onFs = () => setIsFs(!!document.fullscreenElement)
     document.addEventListener('fullscreenchange', onFs)
     return () => document.removeEventListener('fullscreenchange', onFs)
   }, [])
+  function toggleFs() {
+    const box = screenRef.current
+    if (!box) return
+    if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {})
+    else box.requestFullscreen?.().catch(() => setVErr('这个浏览器不让进全屏'))
+  }
+  function toggleMute() {
+    const v = vid.current
+    if (!v) return
+    v.muted = !v.muted
+    setMuted(v.muted)
+  }
+  function togglePlay() {
+    const v = vid.current
+    if (!v) return
+    if (v.paused) v.play().catch(() => {})
+    else v.pause()
+  }
 
   useEffect(() => {
     const v = vid.current
@@ -291,7 +321,7 @@ export function Classroom({ base, goCanvas, initSid }: {
   const [sideOpen, setSideOpen] = useState(() => localStorage.getItem('sd.class.side') !== '0')
   const toggleToc = () => { const v = !tocOpen; setTocOpen(v); localStorage.setItem('sd.class.toc', v ? '1' : '0') }
   const toggleSide = () => { const v = !sideOpen; setSideOpen(v); localStorage.setItem('sd.class.side', v ? '1' : '0') }
-  const cls2 = 'cls2' + (tocOpen ? '' : ' toc-shut') + (sideOpen ? ' side-open' : '') + (theater ? ' theater' : '')
+  const cls2 = 'cls2' + (tocOpen ? '' : ' toc-shut') + (sideOpen ? ' side-open' : '')
 
   return (
     <div className={cls2}>
@@ -345,7 +375,7 @@ export function Classroom({ base, goCanvas, initSid }: {
         </div>
       </aside>
 
-      <div className={"cls2-stage" + (theater ? " cls2-theater" : "")}>
+      <div className="cls2-stage">
         {/* 顶栏两行：身份行（讲次 + 科目/来源 + 两侧开关）和动作行（截帧 / 看完）。
             一行塞满的后果是标题被压成竖排、按钮折成两行 —— 三栏布局里中间这一栏本来就窄。 */}
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12, padding: '0 0 6px' }}>
@@ -390,29 +420,21 @@ export function Classroom({ base, goCanvas, initSid }: {
               {armed ? '再点一次确认' : '标记看完'}
             </button>
           )}
-          {/* 画质放工具栏，不浮在画面角上：浮在视频上那版实测几乎看不见 ——
-              深色底压在深色画面上，人根本不知道那里能点。 */}
-          {les?.local ? null : (
-            <Sel ariaLabel="画质"
-              value={String(qn || pq.data?.qn || 64)}
-              onChange={pickQn}
-              style={{ width: 104 }}
-              options={[
-                { value: '80', label: '1080P', disabled: !pq.data?.logged_in },
-                { value: '64', label: '720P', disabled: !pq.data?.logged_in },
-                { value: '32', label: '480P' },
-              ]} />
-          )}
           <span style={{ marginLeft: 'auto' }}><BiliLogin compact /></span>
         </div>
 
-        <div className="cls2-screen">
+        <div className="cls2-screen" ref={screenRef}>
           {src ? (
             <>
-              <video ref={vid} src={src} poster={poster || undefined} controls playsInline
+              {/* 没有原生 controls：它只会让 <video> 自己进全屏，而全屏里
+                  截帧回执、画质一律画不出来。自建控制条才能让「全屏」= 整个播放区全屏。
+                  这也是 B 站自己的做法 —— 用户要的就是「跟 B 站一样」。 */}
+              <video ref={vid} src={src} poster={poster || undefined} playsInline
                 preload="metadata"
-                onPlay={() => { setStarted(true); setBuf(false) }}
-                onEnded={() => setStarted(true)}
+                onClick={togglePlay}
+                onPlay={() => { setStarted(true); setBuf(false); setPlaying(true) }}
+                onPause={() => setPlaying(false)}
+                onEnded={() => { setStarted(true); setPlaying(false) }}
                 onWaiting={() => setBuf(true)}
                 onPlaying={() => setBuf(false)}
                 onCanPlay={() => setBuf(false)}
@@ -467,27 +489,52 @@ export function Classroom({ base, goCanvas, initSid }: {
               {/* 闪光板：key 一变就重挂，动画从头放一遍（同一张图连截也能再闪）。
                   aria-hidden + pointer-events:none —— 它只是视觉回执，不是控件。 */}
               {flash ? <span key={flash} className="vflash" aria-hidden /> : null}
+              {/* 控制条：播放 / 时间 / 进度 / 画质 / 静音 / 全屏，位置和顺序照 B 站。
+                  为什么自己画：原生 controls 那颗全屏键只能让 <video> 自己进全屏，
+                  那里面只有一条视频流 —— 截图回执、画质全都画不出来（用户原话
+                  「全屏就截不了图」）。自己画的好处在全屏里也成立：
+                  全屏的是整个播放区，覆盖层全在，Esc 照常退。
+                  也是用户要的「跟 B 站一样」：画质就长在控制条上，不是贴在画面角上。 */}
+              <div className={'vctrl' + (playing ? '' : ' pin')} onClick={(e) => e.stopPropagation()}>
+                <button className="vc-btn" aria-label={playing ? '暂停' : '播放'} onClick={togglePlay}>
+                  <Icon n={playing ? 'pause' : 'play'} size={16} />
+                </button>
+                <span className="vc-time">{clock(curSec)} / {clock(dur)}</span>
+                <input className="vc-bar" type="range" aria-label="播放进度"
+                  min={0} max={Math.max(1, Math.round(dur))} step={1}
+                  value={Math.min(Math.round(curSec), Math.max(1, Math.round(dur)))}
+                  style={{ ['--p' as any]: (dur ? (curSec / dur) * 100 : 0) + '%' }}
+                  onChange={(e) => {
+                    const t = Number(e.target.value)
+                    const v = vid.current
+                    if (v) v.currentTime = t
+                    setCurSec(t)
+                  }} />
+                {les?.local ? null : (
+                  <Sel ariaLabel="画质"
+                    value={String(qn || pq.data?.qn || 64)}
+                    onChange={pickQn}
+                    options={[
+                      { value: '80', label: '1080P', disabled: !pq.data?.logged_in },
+                      { value: '64', label: '720P', disabled: !pq.data?.logged_in },
+                      { value: '32', label: '480P' },
+                    ]} />
+                )}
+                <button className="vc-btn" aria-label={muted ? '取消静音' : '静音'} onClick={toggleMute}>
+                  <Icon n="sound" size={16} />
+                </button>
+                <button className="vc-btn" aria-label={isFs ? '退出全屏' : '全屏'} onClick={toggleFs}>
+                  <Icon n={isFs ? 'fit' : 'full'} size={16} />
+                </button>
+              </div>
               {/* 截帧回执画在播放器里，不是工具栏里。
                   影院模式下工具栏被整块视频盖住 —— 回执放那儿等于没回执，
                   人只会觉得「按了没反应」。 */}
               {shotMsg ? <div className="vshot">{shotMsg}</div> : null}
-              {/* 影院模式的出口。Esc 也能退，但屏幕上没有一颗「退出」的话，
-                  人会以为卡在那个页面里了。 */}
-              {theater ? (
-                <button className="vtheater-exit" onClick={() => setTheater(false)}
-                  title="退出影院模式（Esc）">
-                  <Icon n="fit" size={14} />退出影院
-                </button>
-              ) : null}
-              {/* 「影院」：自己接管全屏，不用浏览器原生那个。
-                  原生全屏里键盘事件不再传给页面，S 就废了 —— 而截帧恰恰常在
-                  放大看的时候最想用。这颗按钮进的是 .cls2-theater（整页铺满、
-                  侧栏和目录都收起来），视频还是同一个 <video>，S 照旧生效。
-                  要看原生的话，controls 里那颗全屏按钮还在，两个都能用。 */}
-              <button className="vtheater" title="影院模式：铺满窗口，S 照样能截"
-                aria-label="影院模式" onClick={() => setTheater((v) => !v)}>
-                <Icon n={theater ? 'fit' : 'full'} size={15} />
-              </button>
+              {/* 全屏只留一个入口：播放器自带的那个（浏览器画的，藏不掉）。
+                  以前这里还画了一颗「影院」按钮，等于同一件事两个按钮，人不知道该点哪个
+                  —— 用户原话「这个全屏和这个影院什么鬼」。现在点原生全屏会被
+                  fullscreenchange 接住、自动切成铺满模式，右上角给「退出影院」+ Esc。 */}
             </>
           ) : (
             /* 没有播放源时的空位。三种情况分开说，别用一句话糊过去：
@@ -576,6 +623,17 @@ function SidePanel({ lid, subject, lessonTitle, shots, seekTo, goCanvas }: {
   const [delShotArm, setDelShotArm] = useState<string | null>(null)
   const [msg2, setMsg2] = useState('')
 
+  /* 截图多选（2026-10-30 加）。这一讲的截图一屏放得下二十来张，
+     但常见场景是「刚才连着截了七八张废帧」—— 一张张点删除要十四下
+     （还是两步确认）。所以这一块也能进选择态，一次清掉。
+     为什么不做常驻勾选框：这一栏 190px 宽，常驻方框会把缩略图挤小一号，
+     而日常动作是「点开 / 跳回那一刻」，不是整理。 */
+  const [pick, setPick] = useState(false)
+  const [sel, setSel] = useState<Set<string>>(new Set())
+  const [bulkArm, setBulkArm] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const shotRows: any[] = shots.data?.shots || []
+
   const delNote = useCallback(async (m: { id: string; title: string }) => {
     if (delNoteArm !== m.id) { setDelNoteArm(m.id); return }
     setDelNoteArm(null)
@@ -593,6 +651,31 @@ function SidePanel({ lid, subject, lessonTitle, shots, seekTo, goCanvas }: {
     setMsg2('已从素材库摘掉「' + (s.title || '这一张') + '」· 盘上的图还在')
     shots.run()
   }, [delShotArm, shots])
+
+  function toggleShot(id: string) {
+    setSel((prev) => {
+      const next = new Set(prev)
+      next.has(id) ? next.delete(id) : next.add(id)
+      return next
+    })
+  }
+
+  /* 一批一起删。数字进按钮里 —— 只写「确认」的话人不知道这一下会删几张。 */
+  const delSel = useCallback(async () => {
+    const ids = [...sel]
+    if (!ids.length) return
+    setBusy(true)
+    try {
+      const r = await delShots(ids)
+      setBulkArm(false)
+      if (!r.ok && !r.n) { setMsg2('一张都没删掉：' + (r.error || '未知原因')); return }
+      setMsg2(r.fail
+        ? '摘掉 ' + r.n + ' 张，' + r.fail + ' 张没删掉'
+        : '已从素材库摘掉 ' + r.n + ' 张 · 盘上的图还在')
+      setSel(new Set()); setPick(false)
+      shots.run()
+    } finally { setBusy(false) }
+  }, [sel, shots])
 
   return (
     <aside className="cls2-side">
@@ -637,37 +720,80 @@ function SidePanel({ lid, subject, lessonTitle, shots, seekTo, goCanvas }: {
       </div>
 
       <div className="sc-mn">
-        <div className="h">这一讲的截图</div>
+        <div className="h" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+          <span style={{ flex: 1 }}>这一讲的截图</span>
+          {/* 进 / 出选择态。只有在真有图的时候出现 —— 空的时候放一个点了没用的按钮，
+              等于让人怀疑是不是坏了。 */}
+          {lid && shotRows.length ? (
+            <button className={'sc-pick' + (pick ? ' on' : '')}
+              title={pick ? '退出多选' : '多选：勾几张一起删'}
+              onClick={() => {
+                if (pick) { setPick(false); setSel(new Set()); setBulkArm(false) }
+                else setPick(true)
+              }}>
+              <Icon n={pick ? 'x' : 'sel'} size={12} />{pick ? '退出' : '多选'}
+            </button>
+          ) : null}
+        </div>
         {!lid ? (
           <div style={{ fontSize: 11.5, color: 'var(--tx3)' }}>还没选讲次</div>
         ) : shots.loading ? (
           <div style={{ fontSize: 11.5, color: 'var(--tx3)' }}>正在读…</div>
-        ) : !(shots.data?.shots || []).length ? (
+        ) : !shotRows.length ? (
           <div style={{ fontSize: 11.5, color: 'var(--tx3)', lineHeight: 1.7 }}>
             还没有截图。看到要记的地方按 <b style={{ color: 'var(--tx2)' }}>S</b> 截这一帧。
           </div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
-            {(shots.data?.shots || []).map((s) => (
-              /* 点带秒数的那张 = 跳回那一刻（在播放器上 seek），不是开新标签 ——
-                 截帧的意义就是「我讲过这里」，得能回去看。普通截图才开原图。 */
-              <div className={'shotcellwrap' + (delShotArm === s.id ? ' arming' : '')} key={s.id}>
-                <button className="shotcell-mn" title={s.pos_sec != null ? '跳回 ' + clock(s.pos_sec) : (s.title || '')}
-                  onClick={() => seekTo(s.pos_sec, s.file)}>
-                  <img src={'/shots/' + s.file} alt={s.title || ''} loading="lazy" />
-                  {s.pos_sec != null ? <em>{clock(s.pos_sec)}</em> : null}
+          <>
+            {pick ? (
+              <div className="sc-pickbar">
+                <span><b>{sel.size}</b> 张</span>
+                <button className="pbtn-mn ghost"
+                  onClick={() => setSel(sel.size === shotRows.length ? new Set() : new Set(shotRows.map((x) => x.id)))}>
+                  {sel.size === shotRows.length ? '全不选' : '全选'}
                 </button>
-                {/* 右栏这格以前只有「点开看图」，没有「删掉」——
-                    用户的原话：「你把截图放在了右手边，我怎么删？你给我按键去删的吗？」
-                    所以按钮必须在这儿，而且要常显。 */}
-                <button className="shotdel cell" aria-label="删掉这张截图"
-                  title={delShotArm === s.id ? '再点一次就删掉' : '从素材库摘掉这一张'}
-                  onClick={(e) => { e.stopPropagation(); delShot(s) }}>
-                  {delShotArm === s.id ? <span>再点</span> : <Icon n="trash" size={11} />}
+                <button className={'pbtn-mn danger' + (bulkArm ? ' on' : '')}
+                  disabled={!sel.size || busy}
+                  onClick={() => { if (!bulkArm) { setBulkArm(true); return } delSel() }}>
+                  {busy ? '删中…' : bulkArm ? '删掉 ' + sel.size + ' 张？' : '删掉'}
                 </button>
               </div>
-            ))}
-          </div>
+            ) : null}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
+              {shotRows.map((s) => (
+                /* 点带秒数的那张 = 跳回那一刻（在播放器上 seek），不是开新标签 ——
+                   截帧的意义就是「我讲过这里」，得能回去看。普通截图才开原图。
+                   选择态里点它 = 勾上；「跳回去」这时让给双击，两个动作不抢同一下。 */
+                <div className={'shotcellwrap' + (delShotArm === s.id ? ' arming' : '') + (sel.has(s.id) ? ' sel' : '')} key={s.id}>
+                  <button className="shotcell-mn"
+                    title={pick ? '点一下勾上'
+                      : (s.pos_sec != null ? '跳回 ' + clock(s.pos_sec) : (s.title || ''))}
+                    onClick={() => { if (pick) toggleShot(s.id); else seekTo(s.pos_sec, s.file) }}
+                    onDoubleClick={() => { if (pick) seekTo(s.pos_sec, s.file) }}>
+                    {/* 右栏这一格不到 90px 宽，w 给 320 已经够 retina 用。
+                        跟截图库卡片共用 480 的话，一屏 24 张要多下 200KB —— 那 24 张
+                        是「扫一眼有没有」用的，不是拿来看细节的。 */}
+                    <img src={thumbUrl(s.file, 320)} alt={s.title || ''} loading="lazy"
+                      onError={(e) => thumbFallback(e, s.file)} />
+                    {s.pos_sec != null ? <em>{clock(s.pos_sec)}</em> : null}
+                    {pick ? (
+                      <span className={'shot-chk sm' + (sel.has(s.id) ? ' on' : '')} aria-hidden="true">
+                        {sel.has(s.id) ? <Icon n="check" size={10} /> : null}
+                      </span>
+                    ) : null}
+                  </button>
+                  {/* 右栏这格以前只有「点开看图」，没有「删掉」——
+                      用户的原话：「你把截图放在了右手边，我怎么删？你给我按键去删的吗？」
+                      所以按钮必须在这儿，而且要常显。 */}
+                  <button className="shotdel cell" aria-label="删掉这张截图"
+                    title={delShotArm === s.id ? '再点一次就删掉' : '从素材库摘掉这一张'}
+                    onClick={(e) => { e.stopPropagation(); delShot(s) }}>
+                    {delShotArm === s.id ? <span>再点</span> : <Icon n="trash" size={11} />}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </>
         )}
       </div>
       {msg2 ? <div className="tg-mn ok shotmsg-mn" style={{ alignSelf: 'flex-start' }}>{msg2}</div> : null}

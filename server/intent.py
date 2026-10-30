@@ -149,6 +149,47 @@ def _pick_minutes(text):
     return {"minutes": m, "raw": raw, "from": "你说的 \u201c%s\u201d = %d 分钟" % (raw, m)}
 
 
+# 「一节课」的两种语序：一节数学 / 数学一节。
+# 为什么单独认它：用户说的是「一天一节数学，一节 C 语言，一节英语」——
+# 他按讲数说，不是按分钟说。老的 minutes_per_day 表达不了，于是整句话被判成
+# 「没给每天总时长」，什么都没排成。这不是用户没说清楚，是模型太窄。
+_Q_PRE = re.compile(r"([0-9一二三四五六七八九十两])\s*[节讲]\s*([^\s，,。；;、和及]{1,10})")
+_Q_POST = re.compile(r"([^\s，,。；;、和及]{2,10}?)\s*([0-9一二三四五六七八九十两])\s*[节讲]")
+
+
+def _quota_of(text):
+    """认出「每科每天上几节」。认不出的科目直接丢掉，不硬凑一个。"""
+    t = (text or "").replace("\u3000", " ")
+    p = datahub.proto()
+    got = {}
+
+    def put(name, n):
+        s = datahub.subject_flex(p, name)
+        if not s:
+            # 尾部常粘着「，一节英语」这类残渣，砍短再认一次
+            for k in (5, 4, 3, 2):
+                if len(name) > k:
+                    s = datahub.subject_flex(p, name[:k])
+                    if s:
+                        break
+        if not s:
+            return
+        try:
+            k = int(n or 1)
+        except (TypeError, ValueError):
+            k = 1
+        if k <= 0 or k > 6:
+            return
+        got[s["id"]] = {"subject": s["id"], "name": s.get("name"),
+                        "lessons_per_day": k, "from": name}
+
+    for m in _Q_PRE.finditer(t):
+        put(m.group(2), _cn_int(m.group(1)))
+    for m in _Q_POST.finditer(t):
+        put(m.group(1), _cn_int(m.group(2)))
+    return list(got.values())
+
+
 # ---------------------------------------------------------------- 拆一句话
 def parse(text, today=None):
     t = (text or "").strip()
@@ -219,7 +260,7 @@ def parse(text, today=None):
             "date": d["date"].isoformat() if d["date"] else None,
             "date_raw": d["raw"], "date_from": d["from"],
             "minutes_per_day": m["minutes"], "minutes_raw": m["raw"],
-            "minutes_from": m["from"], "have": me}
+            "minutes_from": m["from"], "per_subject": _quota_of(t), "have": me}
 
 
 # ---------------------------------------------------------------- 认完之后
@@ -260,16 +301,27 @@ def plan_from_intent(text, today=None, apply=True):
     if pp["goal_kind"] == "unknown":
         out.update({"ok": False, "kind": "need_goal", "say": _NEED_TIP["goal"],
                     "need": "goal", "have": pp["have"]}); return out
-    if not pp["date"]:
-        out.update({"ok": False, "kind": "need_date", "say": _NEED_TIP["date"],
-                    "need": "date", "have": pp["have"],
-                    "date_from": pp["date_from"]}); return out
-    if not pp["minutes_per_day"]:
-        out.update({"ok": False, "kind": "need_minutes", "say": _NEED_TIP["minutes"],
-                    "need": "minutes", "have": pp["have"],
-                    "minutes_from": pp["minutes_from"]}); return out
+    quota = pp.get("per_subject") or []
+    if not quota:
+        if not pp["date"]:
+            out.update({"ok": False, "kind": "need_date", "say": _NEED_TIP["date"],
+                        "need": "date", "have": pp["have"],
+                        "date_from": pp["date_from"]}); return out
+        if not pp["minutes_per_day"]:
+            out.update({"ok": False, "kind": "need_minutes", "say": _NEED_TIP["minutes"],
+                        "need": "minutes", "have": pp["have"],
+                        "minutes_from": pp["minutes_from"]}); return out
 
     if not apply:
+        if quota:
+            names = "、".join("%s 每天 %d 节" % (x["name"], x["lessons_per_day"]) for x in quota)
+            out.update({
+                "ok": False, "kind": "ready", "effect_kind": "noop",
+                "say": "听清了：%s。要我现在按这个排吗？"
+                       "按讲数排，不按总分切 —— 每科每天就这么多，讲比一天长就拆到第二天。" % names,
+                "ready": {"per_subject": quota, "exam_date": pp["date"]},
+            })
+            return out
         out.update({
             "ok": False, "kind": "ready", "effect_kind": "noop",
             "say": "认齐了：%s 考，每天 %d 分钟。要我现在按这个排吗？"
@@ -279,10 +331,34 @@ def plan_from_intent(text, today=None, apply=True):
         })
         return out
 
-    r = planner.set_budget(exam_date=pp["date"], minutes_per_day=pp["minutes_per_day"])
+    r = planner.set_budget(exam_date=pp["date"] or None,
+                           minutes_per_day=pp["minutes_per_day"] or None,
+                           per_subject=quota or None)
     if not r.get("ok"):
         out.update({"ok": False, "kind": "bad_input", "say": r.get("error") or "这个值我没法用。"})
         return out
+    if quota:
+        w = planner.plan_week(7)
+        days = [x for x in (w.get("days") or []) if x.get("blocks")]
+        head = days[0] if days else None
+        names = "、".join("%s 每天 %d 节" % (x["name"], x["lessons_per_day"]) for x in quota)
+        line = ""
+        if head:
+            line = "明天就先这样：" + "；".join(
+                "%s %d 分钟" % (b.get("subject_name"), b.get("minutes")) for b in head["blocks"]) + "。"
+        out.update({
+            "ok": True, "kind": "planned", "mode": "quota",
+            "say": "认下了：%s。%s一共排了 %d 天，每天合计 %d–%d 分钟。" % (
+                names, line,
+                len(days),
+                min([d["minutes"] for d in days]) if days else 0,
+                max([d["minutes"] for d in days]) if days else 0),
+            "budget": r.get("budget"), "week": w,
+            "date_from": pp["date_from"], "minutes_from": pp["minutes_from"],
+            "effect": "每日配额已写进 data/plan.json：" + names,
+        })
+        return out
+
     pb = planner.plan_budget()
     out.update({
         "ok": True, "kind": "planned",

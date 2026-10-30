@@ -32,6 +32,20 @@ function coverOf(s: any): string {
   return /^https?:\/\//i.test(c) ? c : '/' + c.replace(/^\//, '')
 }
 
+/* 一门课的总时长（秒）。
+   后端把 subjects[].lessons 从 /api/base 里拿掉了（889 讲光这一项就占掉大半个
+   245KB），改成直接给 dur_total —— 合计本来就不该让每个页面自己再算一遍。
+   但两边不是同时上线的：dur_total 还没来的那段时间，lessons 里还能数出时长，
+   这时候回落到老算法，总比整页突然全变成「时长未记」强（那是把一个接口迁移
+   变成了一次看得见的功能倒退）。
+   dur_total 明确是数字（哪怕是 0）就以它为准：0 表示「这一门真没记时长」，
+   不该再回头去 lessons 里翻出一个不一样的数。 */
+function durOf(s: any): number {
+  if (typeof s?.dur_total === 'number' && s.dur_total >= 0) return s.dur_total
+  const ls = Array.isArray(s?.lessons) ? s.lessons : []
+  return ls.reduce((b: number, x: any) => b + (x.dur || 0), 0)
+}
+
 // 判分档 → 小标签的档位色：能自己判的绿，要模型的黄，纯导入的灰。
 function judgeTone(j: string): string {
   if (j === 'exact') return 'ok'
@@ -53,8 +67,8 @@ export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: str
   const done = subs.reduce((a, s) => a + (s.lessons_done || 0), 0)
   const srcTotal = srcs.reduce((a: number, s: any) => a + (s.total || 0), 0)
   const srcSubs = new Set(srcs.map((s: any) => s.subject).filter(Boolean)).size
-  // lessons[].dur 是秒。合计成小时只算一遍，跟 plan_budget 的 pending_hours 对得上。
-  const hours = subs.reduce((a, s) => a + ((s.lessons || []) as any[]).reduce((b, x) => b + (x.dur || 0), 0) / 3600, 0)
+  // dur_total 是秒。合计成小时只算一遍，跟 plan_budget 的 pending_hours 对得上。
+  const hours = subs.reduce((a, s) => a + durOf(s) / 3600, 0)
   const pct = total ? (done / total) * 100 : 0
 
   return (
@@ -90,7 +104,7 @@ export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: str
           {subs.map((s) => {
             const cv = coverOf(s)
             const p = s.lessons_total ? (s.lessons_done / s.lessons_total) * 100 : 0
-            const h = ((s.lessons || []) as any[]).reduce((b, x) => b + (x.dur || 0), 0) / 3600
+            const h = durOf(s) / 3600
             const col = clsColor(s.cls || s.accent || s.id)
             const bg = COVER_BG[s.cls || s.accent || s.id] || 'linear-gradient(135deg,#3A3328,#5B5344 130%)'
             return (

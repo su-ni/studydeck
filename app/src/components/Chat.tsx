@@ -972,6 +972,10 @@ export function Chat({
 }) {
   const [msgs, setMsgs] = useState<Msg[]>([])
   const [text, setText] = useState('')
+  /* 拖/粘进来的东西。浏览器拿不到真实路径（安全限制），所以落地成本机文件，
+     再把路径拼进这一句话里 —— 模型要的是「在哪」，不是几十兆 base64。 */
+  const [atts, setAtts] = useState<{ path: string; name: string; size: number; kind: string }[]>([])
+  const [dropOn, setDropOn] = useState(false)
   const [busy, setBusy] = useState(false)
   /* 上一轮是不是半路停了（撞上限/断流）—— 是就摆一颗「接着干」 */
   const [stalled, setStalled] = useState(false)
@@ -1032,6 +1036,25 @@ export function Chat({
       t.style.height = Math.min(t.scrollHeight, 132) + 'px'
     })
   }, [asr.live, asr.phase])
+
+  /* Ctrl/Cmd+F：这一屏没有顶栏（Chat 自己占满，不走 Shell），
+     所以 App 那只框压根不在这儿 —— 不补这一段的话，在聊天里按 Ctrl+F
+     会唤出浏览器的查找栏，显得「搜索在这页坏了」。
+     做法跟别处一致：焦点在自己的输入框/文本域里时让给浏览器原生查找，
+     否则发一个事件请 App 打开居中的搜索弹窗（App 是唯一持有它状态的地方）。 */
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey
+      if (!mod || (e.key !== 'f' && e.key !== 'F')) return
+      const t = e.target as HTMLElement | null
+      const tag = (t?.tagName || '').toLowerCase()
+      if (tag === 'input' || tag === 'textarea' || (t as any)?.isContentEditable) return
+      e.preventDefault()
+      window.dispatchEvent(new Event('sd:search-open'))
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   /* 停止后的收尾：把最后半句也拿到，替换成完整文字。
      取一次即清（recorder.takeText），所以切页回来不会重复粘一遍。 */
@@ -1193,9 +1216,91 @@ export function Chat({
     if (t) { t.focus(); requestAnimationFrame(() => { try { t.setSelectionRange(m.text.length, m.text.length) } catch {} }) }
   }
 
+  /* ---- 收件箱：拖进来 / 粘进来的文件先落盘，再把路径交给助手 ---- */
+  async function uploadOne(f: File) {
+    // 文件夹拖进来时浏览器的相对路径是 "子目录/文件.txt"，压成一层文件名
+    const raw = ((f as unknown as { webkitRelativePath?: string }).webkitRelativePath || f.name)
+      .replace(/\//g, '__') || 'paste.bin'
+    try {
+      const r = await fetch('/api/inbox?name=' + encodeURIComponent(raw), {
+        method: 'POST', body: f,
+      })
+      const d = await r.json()
+      if (!d?.ok) { setErr(d?.detail || '这个文件没收下'); return null }
+      return { path: d.path as string, name: d.name as string, size: d.size as number, kind: d.kind as string }
+    } catch {
+      setErr('传文件时连不上本机服务')
+      return null
+    }
+  }
+
+  async function addFiles(list: File[]) {
+    if (!list.length) return
+    const got: { path: string; name: string; size: number; kind: string }[] = []
+    for (const f of list.slice(0, 120)) {         // 整个文件夹最多 120 个，多的先不要
+      const a = await uploadOne(f)
+      if (a) got.push(a)
+    }
+    if (got.length) setAtts((x) => [...x, ...got])
+    if (list.length > 120) setErr('文件太多，只收了前 120 个')
+  }
+
+  /* 拖文件夹时 File 列表是空的，得顺着 entry 往下翻 */
+  async function walkEntry(entry: any, out: File[], depth = 0): Promise<void> {
+    if (out.length >= 120 || depth > 6) return
+    if (entry.isFile) {
+      const f = await new Promise<File | null>((res) => entry.file(res, () => res(null)))
+      if (f) out.push(f)
+      return
+    }
+    if (entry.isDirectory) {
+      const rd = entry.createReader()
+      const batch: any[] = await new Promise((res) => rd.readEntries(res, () => res([])))
+      for (const e of batch) await walkEntry(e, out, depth + 1)
+    }
+  }
+
+  async function onDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDropOn(false)
+    const dt = e.dataTransfer
+    const entries: any[] = []
+    for (let i = 0; i < dt.items.length; i++) {
+      const en = (dt.items[i] as any).webkitGetAsEntry?.()
+      if (en) entries.push(en)
+    }
+    if (entries.length) {
+      const out: File[] = []
+      for (const en of entries) await walkEntry(en, out)
+      if (out.length) { await addFiles(out); return }
+    }
+    if (dt.files?.length) await addFiles(Array.from(dt.files))
+  }
+
+  async function onPaste(e: React.ClipboardEvent) {
+    const fs: File[] = []
+    for (const it of Array.from(e.clipboardData?.items || [])) {
+      if (it.kind !== 'file') continue
+      const f = it.getAsFile()
+      if (f) {
+        // 剪贴板里的截图没有文件名，给个能认出来的
+        const ext = (f.type.split('/')[1] || 'png').replace('jpeg', 'jpg')
+        fs.push(f.name && f.name !== 'image.png'
+          ? f : new File([f], 'paste-' + Date.now() + '.' + ext, { type: f.type }))
+      }
+    }
+    if (fs.length) { e.preventDefault(); await addFiles(fs) }
+  }
+
   async function send(q0?: string, confirmed?: Pending) {
     const q = (q0 ?? text).trim()
-    if (!q || busyRef.current) return
+    /* 只拖了文件、一个字没打也算一句话 —— 用户就是这个意思（「看看这个」） */
+    if ((!q && !atts.length) || busyRef.current) return
+    const attached = atts.length > 0
+    /* 气泡里显示的是人说的原话，发给模型的那句后面挂真实路径 */
+    const forModel = attached
+      ? (q || '看看这些文件') + '\n\n' + atts.map((a) => `[附件] ${a.path}`).join('\n')
+      : q
     busyRef.current = true
     setBusy(true)
     setErr('')
@@ -1221,8 +1326,9 @@ export function Chat({
     }
 
     if (!confirmed) {
-      setMsgs((m) => [...m, { role: 'user', text: q }])
+      setMsgs((m) => [...m, { role: 'user', text: q || '（发了 ' + atts.length + ' 个文件）' }])
       setText('')
+      setAtts([])
       setEditIdx(null)
     } else {
       /* 确认重放：不追加用户气泡（那句已经在了），但要把上一轮的 pending 摘掉 */
@@ -1251,7 +1357,7 @@ export function Chat({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         // 档位由 EffortPicker 写在后端，这里不用再传；后端 turn() 自己读 kv。
-        body: JSON.stringify({ text: q, confirmed: confirmed || null, focus: page }),
+        body: JSON.stringify({ text: forModel, confirmed: confirmed || null, focus: page }),
         signal: ac.signal,
       })
       if (!res.ok || !res.body) throw new Error('HTTP ' + res.status)
@@ -1804,11 +1910,36 @@ export function Chat({
               <Icon n="x" size={11} />
             </button>
           ) : null}
-          <div className={'cbox' + (busy ? ' busy' : '')}>
+          <div
+            className={'cbox' + (busy ? ' busy' : '') + (dropOn ? ' dropping' : '')}
+            onDragOver={(e) => { e.preventDefault(); if (!dropOn) setDropOn(true) }}
+            onDragLeave={(e) => {
+              /* 只有真的离开这个框才收高亮 —— 从 textarea 移到按钮上不该闪 */
+              if (!(e.currentTarget as Node).contains(e.relatedTarget as Node)) setDropOn(false)
+            }}
+            onDrop={onDrop}
+          >
+            {atts.length ? (
+              <div className="atts">
+                {atts.map((a, i) => (
+                  <span key={a.path + i} className="att" title={a.path}>
+                    <Icon n={a.kind === 'image' ? 'img' : 'md'} size={11} />
+                    <b>{a.name.length > 22 ? a.name.slice(0, 20) + '…' : a.name}</b>
+                    <em>{a.size >= 1048576
+                      ? (a.size / 1048576).toFixed(1) + 'M'
+                      : Math.max(1, Math.round(a.size / 1024)) + 'K'}</em>
+                    <button onClick={() => setAtts((x) => x.filter((_, j) => j !== i))}
+                      title="不发了"><Icon n="x" size={10} /></button>
+                  </span>
+                ))}
+              </div>
+            ) : null}
+            {dropOn ? <div className="drop-hint">松手就收下 —— 文件、图片、整个文件夹都行</div> : null}
             <textarea
               ref={taRef}
               value={text}
               rows={1}
+              onPaste={onPaste}
               placeholder={'说句话。问进度、问概念、让它找课排计划都行 —— 不想动工具它就只跟你聊。'}
               onChange={(e) => {
                 setText(e.target.value)
@@ -1836,7 +1967,11 @@ export function Chat({
               <ModelPicker />
               <EffortPicker disabled={busy} />
               <PermPicker disabled={busy} />
-              {/* 麦克风。录音时按钮自己变色，旁边跟一颗真实的秒数；
+              <div className="sp" />
+              {msgs.length > 0 && (
+                <button className="clr" onClick={clearAll} title="把这段对话清掉">清空</button>
+              )}
+              {/* 麦克风挨着清空、在它右边。录音时按钮自己变色，旁边跟一颗真实的秒数；
                   再点一次就是停 —— 除此之外没有任何东西能让它停。 */}
               <button
                 className={'mic' + (asr.phase === 'recording' ? ' rec' : '')
@@ -1858,10 +1993,6 @@ export function Chat({
               ) : asr.phase === 'transcribing' ? (
                 <span className="mic-t dim">在收尾…</span>
               ) : null}
-              <div className="sp" />
-              {msgs.length > 0 && (
-                <button className="clr" onClick={clearAll} title="把这段对话清掉">清空</button>
-              )}
               {busy ? (
                 <button className="send stop" onClick={stopRun}
                   title="停一下（这一步跑完就停，已说的话保留）">
@@ -1871,7 +2002,7 @@ export function Chat({
                 <button
                   className="send"
                   onClick={() => send()}
-                  disabled={!text.trim() || asr.phase === 'recording'}
+                  disabled={(!text.trim() && !atts.length) || asr.phase === 'recording'}
                   title={asr.phase === 'recording' ? '先把话说完' : '发送（Enter）'}
                 >
                   <Icon n="chev" size={15} />

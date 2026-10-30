@@ -64,18 +64,52 @@ _load_err = None
 _ver = [0]
 
 
-_CONN = [None]
+_CONN = threading.local()
+
+
+def _open():
+    """建一条 kb 专用的连接。
+
+    为什么不能用 store.connect()：它建出来的连接带 SQLite 默认的线程归属
+    （只能在创建它的那个线程里用）。而 Web 服务是「一个请求一个线程」——
+    服务启动时预热线程先碰一次 kb，之后真正处理搜索请求的是别的线程，
+    一检索就抛
+      「SQLite objects created in thread X can only be used in thread Y」。
+    表现很坑：单独跑脚本一切正常，只有从界面上搜才报「语义检索出错」。
+    """
+    import sqlite3 as _sq
+    con = _sq.connect(config.DB_PATH, timeout=10)
+    con.row_factory = _sq.Row
+    try:
+        con.execute("PRAGMA journal_mode=WAL")
+    except Exception:
+        pass
+    return con
 
 
 def _conn():
-    """模块级单例连接。
+    """每个线程一条连接，线程内复用。
 
-    不复用的话每次检索都新建一次 SQLite 连接、还不关，几百次调用之后句柄就漏干净了。
-    WAL 模式下同一个连接读写都行，够用。
+    为什么不是「全局一条 + check_same_thread=False + 一把锁」：
+    那条路能跑，但等于把 SQLite 自己的并发保护拆了再手工补一把大锁，
+    任何一次 kb 读写都会把其它请求（包括无关的写盘）挡在门外。
+    线程本地连接没有这个代价 —— 连接很轻，一个线程池也就那么几个线程，
+    而「每个线程一条」正是 SQLite 文档推荐的做法。
+
+    又为什么不每次新建：那样句柄会漏（见 kb 原注释，几百次调用就漏干净了）。
+    线程内复用 + 线程间隔离，两头都要。
     """
-    if _CONN[0] is None:
-        _CONN[0] = store.connect()
-    return _CONN[0]
+    c = getattr(_CONN, "c", None)
+    if c is None:
+        c = _open()
+        _CONN.c = c
+    return c
+
+
+def ensure_schema(conn=None):
+    c = conn or _conn()
+    c.executescript(_SCHEMA)
+    c.commit()
 
 
 def ensure_schema(conn=None):
@@ -232,6 +266,68 @@ def put(source, ref, subject=None, kind=None, title=None, text=None):
     """写一条。这是「写入即索引」的唯一入口 —— 内容落库的地方顺手调它。"""
     return put_many([{"source": source, "ref": ref, "subject": subject,
                       "kind": kind, "title": title, "text": text}])
+
+
+# ---------------------------------------------------------------------------
+# 笔记 / 画布：写入即索引
+# ---------------------------------------------------------------------------
+# 为什么单独给它们两个函数：collect() 只在 kb_build 时被走一遍，
+# 而笔记和画布是**用户随手改**的 —— 刚记的一句、刚画的一个节点，
+# 下一秒搜就要能搜到。等下次全量重建等于「搜不到刚写的东西」。
+
+def index_note(lesson_id, text, extra=""):
+    """一条笔记落库 → 顺手进索引。"""
+    lid = str(lesson_id or "").strip()
+    txt = str(text or "").strip()
+    if not lid or not txt:
+        return 0
+    return put_many([{
+        "source": "note", "ref": lid,
+        "subject": (lid.split("-")[0] or None),
+        "kind": "笔记", "title": _clean(txt, 34),
+        "text": _clean(("%s %s" % (extra or "", txt)), 800),
+    }]).get("added", 0) + 0
+
+
+def index_canvas(map_id, title=None, tree=None, lesson_id=None):
+    """一张画布落库 → 把整棵树摊成一段文字再进索引。
+
+    跟 collect() 里第 7 段用的是同一套摊法（缩进拼路径），
+    两边保持一致：不然「全量重建之后」和「刚存完」搜出来的内容会不一样。
+    """
+    mid = str(map_id or "").strip()
+    if not mid:
+        return 0
+    buf = []
+
+    def _flatten(node, dep=0):
+        if isinstance(node, dict):
+            t = node.get("text") or node.get("title") or ""
+            if t:
+                buf.append(("  " * dep) + str(t))
+            for ch in node.get("children") or []:
+                _flatten(ch, dep + 1)
+        elif isinstance(node, list):
+            for ch in node:
+                _flatten(ch, dep)
+
+    try:
+        _flatten(tree or {}, 0)
+    except Exception:
+        pass
+    txt = " / ".join(x.strip() for x in buf if x.strip())[:900]
+    if not txt:
+        txt = str(title or "").strip()
+    if not txt:
+        # 空画布没什么可搜的，但也别留一条旧的在上面 —— 那样会搜到已经删掉的内容。
+        drop("canvas", mid)
+        return 0
+    return put_many([{
+        "source": "canvas", "ref": mid,
+        "subject": (str(lesson_id or mid).split("-")[0] or None),
+        "kind": "画布", "title": _clean(str(title or txt), 34),
+        "text": _clean(txt, 900),
+    }]).get("added", 0)
 
 
 def drop(source=None, ref=None):

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react'
 import { Icon, type IconName } from './Icon'
 import { clsColor } from './V6'
 import { Sel } from './Sel'
@@ -7,6 +8,7 @@ import { useTool } from '../lib/useTool'
 export type PageKey =
   | 'home' | 'today' | 'classroom' | 'courses' | 'schedule' | 'vocab'
   | 'practice' | 'notes' | 'notesAll' | 'exam' | 'stats' | 'writing' | 'agent' | 'canvas' | 'shots'
+  | 'search'
 
 export type NavItem = { k: PageKey; t: string; n: IconName; cnt?: (b: Base) => number }
 
@@ -74,6 +76,7 @@ export const TITLES: Record<PageKey, { kick: string; h1: string; sub: string }> 
   agent: { kick: '设置', h1: '能力与数据', sub: '模型、题源、备份、同步 —— 所有能力都是可调用工具，点一行就真调一次' },
   canvas: { kick: '画布', h1: '笔记画布', sub: '导图存在本机，可拉 XMind / Obsidian 等来源' },
   shots: { kick: '截图库', h1: '截过的每一帧', sub: '课堂按 S 存的帧、画布导出的图、上传的图 —— 按科目和关键词找得到' },
+  search: { kick: '搜索', h1: '全局搜索', sub: '页面 / 能力 / 题考点词 / 语义 / 本机文件 / AI 会话 —— 一路并排' },
 }
 
 function coverOf(s: any): string {
@@ -82,8 +85,51 @@ function coverOf(s: any): string {
   return /^https?:\/\//i.test(c) ? c : '/' + c.replace(/^\//, '')
 }
 
+/* 顶栏搜索框。
+   状态只放在自己身上：打字的时候不碰路由、不碰全局，所以敲字不会跳页。
+   回车才把词塞进 #search?q=… —— 跳过去之后由 Search 页自己拿 q 去问后端。
+
+   搜索页自己那个大输入框不再显示这一只（那会变成两个框）。
+   画布页也不显示 —— 那一页的 Ctrl+F 唤的是画布自己的搜节点框，
+   摆一个写着「Ctrl+F」的全局搜索框在那儿，等于告诉用户按下去会搜全局，
+   而实际不会。这道闸在 Shell 的 JSX 里（{page !== 'canvas'}），
+   不在这里：本组件只管「框长什么样、回车往哪跳」，该不该出现由调用方决定。 */
+function TopSearch({ page, initial, big }: { page: PageKey; initial?: string; big?: boolean }) {
+  const [v, setV] = useState(initial || '')
+  const [on, setOn] = useState(false)
+  /* initial 变了要跟着变：搜索页的词是从弹窗/地址栏来的，
+     不跟过来的话框里会停在旧词上 —— 用户看到的和搜的就不是一回事了。 */
+  useEffect(() => { setV(initial || '') }, [initial])
+  return (
+    <form
+      className={'srchbox' + (on ? ' on' : '') + (big ? ' big' : '')}
+      role="search"
+      onSubmit={(e) => {
+        e.preventDefault()
+        const w = v.trim()
+        if (w) location.hash = 'search?q=' + encodeURIComponent(w)
+      }}
+    >
+      <Icon n="search" size={13} />
+      <input
+        value={v}
+        placeholder="搜索"
+        aria-label="全局搜索"
+        onChange={(e) => setV(e.target.value)}
+        onFocus={() => setOn(true)}
+        onBlur={() => setOn(false)}
+        onKeyDown={(e) => { if (e.key === 'Escape') { setV(''); e.currentTarget.blur() } }}
+      />
+      {/* 只在没输入时显示快捷键提示：打字的时候它是干扰。
+          画布页渲染不到这里（见上面那道闸），所以这个 Ctrl+F 不会出现在
+          画布页上误导用户去按它搜全局。 */}
+      {!v ? <kbd>Ctrl+F</kbd> : null}
+    </form>
+  )
+}
+
 export function Shell({
-  page, onGo, base, children, topRight, sid, onSid,
+  page, onGo, base, children, topRight, sid, onSid, searchQ, hideSearch,
 }: {
   page: PageKey
   /* entry 说明「这一次是从哪条路进去的」：顶栏胶囊 = tab，左栏图标 = rail。
@@ -94,6 +140,12 @@ export function Shell({
   topRight?: React.ReactNode
   sid?: string
   onSid?: (id: string) => void
+  /* 搜索页顶栏那只框要显示「当前搜的词」，由 App 传下来。 */
+  searchQ?: string
+  /* 什么时候藏掉顶栏框：目前只有「Ctrl+F 弹窗开着」那一下 ——
+     弹窗里有框、顶栏也有框，同屏两只框就是用户说的「三个搜索框」。
+     藏掉顶栏那只，同一时刻画面里就只有一只。 */
+  hideSearch?: boolean
   bare?: boolean
   /* bare 已废弃（pagehead 整个删了），参数留着只是兼容旧调用 —— 下次清理时去掉 */
 }) {
@@ -192,7 +244,21 @@ export function Shell({
             </div>
           ) : null}
 
+          {/* 顶栏搜索框：全站**只有这一只**。
+              - 普通页面：在右侧那排 pill 里，跟以前一样（不居中、不挪位置）。
+              - 搜索页：同一只框改为居中 —— 不是新画一个，是它挪到中间。
+              两只框会让人分不清「刚才打的字去哪了」，所以这里只有一个组件，
+              靠 placement 决定放哪儿。 */}
+          {page !== 'canvas' && page === 'search' && !hideSearch ? (
+            <div className="tmid">
+              <TopSearch page={page} initial={searchQ} big />
+            </div>
+          ) : null}
+
           <div className="trt">
+            {/* 普通页面的搜索框就在这儿 —— 回到它本来的位置，不居中。 */}
+            {page !== 'canvas' && page !== 'search' && !hideSearch
+              ? <TopSearch page={page} /> : null}
             {showTabs ? <span className="pill"><b>{done}</b>/{total} 讲</span> : null}
             <span className="pill" title={wk.data?.exam_date ? '考试日期 ' + wk.data.exam_date : '还没设考试日期'}>
               {daysLeft != null ? <>距考 <b>{daysLeft}</b> 天</> : '未设考试日期'}

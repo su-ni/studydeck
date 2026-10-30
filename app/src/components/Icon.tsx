@@ -16,6 +16,8 @@ const P: Record<string, ReactElement> = {
   play: <path d="M5.5 3.5l9 5.5-9 5.5z" />,
   // 停止：实心方块。跟 play 一对 —— 发送中它替换发送键。
   stop: <rect x="5.2" y="5.2" width="7.6" height="7.6" rx="1.5" />,
+  // 暂停：两根竖条。自建控制条要它（没有原生 controls 时播放/暂停自己画）
+  pause: <><rect x="5" y="3.5" width="2.6" height="11" rx="1" /><rect x="10.4" y="3.5" width="2.6" height="11" rx="1" /></>,
   // 重新拉取：开口环 + 箭头
   refresh: <><path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9" fill="none" /><path d="M14.8 3.4v3.4h-3.4" fill="none" /></>,
   // 底部状态条：计时圈 / 用量堆叠
@@ -52,6 +54,11 @@ const P: Record<string, ReactElement> = {
   // 课堂页的两栏开关：左边一条竖栏 + 箭头，暗示「这一栏在/不在」。
   'panel-left': <><rect x="2.5" y="3.5" width="13" height="11" rx="2" fill="none" /><path d="M7 3.5v11" fill="none" strokeWidth="1.5" /></>,
   'panel-right': <><rect x="2.5" y="3.5" width="13" height="11" rx="2" fill="none" /><path d="M11 3.5v11" fill="none" strokeWidth="1.5" /></>,
+  // 多选：虚框里一个勾。「选择」这个动作全站只有一种长相 ——
+  // 截图库和课堂右栏都用它，用户不用再认第二个符号。
+  sel: <><rect x="2.5" y="2.5" width="13" height="13" rx="3" fill="none" strokeDasharray="2.4 2.2" /><path d="M6 9.2l2.2 2.2L12.2 7" fill="none" /></>,
+  // 全部勾上：实心方框 + 勾（全选态用）
+  selAll: <><rect x="2.5" y="2.5" width="13" height="13" rx="3" fill="none" /><path d="M6 9.2l2.2 2.2L12.2 7" fill="none" /></>,
 }
 
 export type IconName = keyof typeof P

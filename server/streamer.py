@@ -24,6 +24,7 @@ import queue
 import subprocess
 import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from . import config
 
@@ -112,8 +113,16 @@ def build(lesson_id, q, video, audio):
     """
     d = stream_dir()
     os.makedirs(d, exist_ok=True)
-    vp = _fetch_track(video, os.path.join(d, "%s.q%s.v.m4s" % (lesson_id, q)))
-    ap = _fetch_track(audio, os.path.join(d, "%s.q%s.a.m4s" % (lesson_id, q))) if audio else None
+    # 两条轨并行下：以前是串行，35 秒里有 1/3 是白等的（视频下完才轮到音频）。
+    # 同一讲的锁在外面，这里只并发两条 HTTP，不会和别的讲抢。
+    vp = os.path.join(d, "%s.q%s.v.m4s" % (lesson_id, q))
+    ap = os.path.join(d, "%s.q%s.a.m4s" % (lesson_id, q)) if audio else None
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        fv = ex.submit(_fetch_track, video, vp)
+        fa = ex.submit(_fetch_track, audio, ap) if audio else None
+        fv.result()
+        if fa:
+            fa.result()
     out = os.path.join(d, "%s.q%s.mp4" % (lesson_id, q))
     tmp = out + ".part"
     cmd = [FFMPEG, "-hide_banner", "-loglevel", "error", "-y", "-i", vp]

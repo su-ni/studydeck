@@ -464,7 +464,9 @@
 /* 合流中：B 站 dash 首次播放要先落成本地 mp4（10~30 秒）。
    不给这段说法，用户看到的就是一块不动的黑框 —— 等于「卡死了」。 */
 .cls2-screen .vbuf {
-  position: absolute; left: 12px; bottom: 12px;
+  /* 贴着最底下：合流的时候控制条本来也用不上，让它压着没关系 ——
+     关键是别和上面那条截帧回执叠在一起。 */
+  position: absolute; left: 12px; bottom: 14px;
   display: flex; align-items: center; gap: 9px;
   padding: 7px 12px; border-radius: 999px;
   background: rgba(10,8,6,.82); border: 1px solid var(--line2);
@@ -1136,51 +1138,448 @@
 /* 画质下拉：视频右上角常显。
    它是「现在是什么档」而不是「点一下干什么」，所以不做成 hover 才出现的按钮 ——
    想换画质的时候还得先在画面里找那个小东西，找不到就以为没有。 */
-.vqsel { position: absolute; right: 8px; top: 8px; z-index: 6; }
-.vqsel .csel {
-  height: 30px; min-width: 84px; padding: 0 8px;
-  background: rgba(12, 10, 8, .74); border-color: rgba(255, 255, 255, .18);
-  color: rgba(255, 255, 255, .84); backdrop-filter: blur(4px);
+/* ===== 播放器控制条（自建）=====
+   学 B 站的排布：左边播放/时间/进度，右边画质/静音/全屏。
+   为什么不用原生 controls：它那颗全屏键只能让 <video> 自己进全屏，而全屏里
+   只剩一条视频流 —— 截图回执、画质全画不出来。自己画之后，全屏的是整个播放区，
+   覆盖层都在，Esc 照常退，画质也回到了它该在的位置。 */
+.vctrl {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 10;
+  display: flex; align-items: center; gap: 10px;
+  padding: 26px 12px 9px;
+  background: linear-gradient(180deg, rgba(0,0,0,0) 0%, rgba(0,0,0,.72) 62%, rgba(0,0,0,.86) 100%);
+  opacity: 0; transition: opacity .16s var(--ease);
 }
-.vqsel .csel:hover { color: #fff; border-color: rgba(255, 255, 255, .3); }
-.cls2-theater .vqsel { right: 14px; top: 14px; }
+.cls2-screen:hover .vctrl, .cls2-screen:focus-within .vctrl, .vctrl.pin { opacity: 1; }
 
-/* ===== 影院模式：真的铺满 =====
-   以前这个按钮只换了自己的图标 —— theater 状态改了，页面上什么都没发生
-   （.cls2-theater 这个类从来没挂到元素上）。人点了以为全屏了，其实还在三栏里。
-   这里把整块舞台提成顶层，除了播放器全藏掉。
-   不用浏览器原生全屏：原生全屏里只有 <video> 在 top layer，
-   截图回执、画质下拉这些盖在视频上的东西一个都画不出来 —— 而截帧恰恰要在放大时用。 */
-.cls2-stage.cls2-theater {
-  position: fixed; inset: 0; z-index: 85;
-  background: #000; overflow: hidden; padding: 0;
+.vc-btn {
+  flex: none; width: 28px; height: 28px; display: grid; place-items: center;
+  border: 0; background: none; border-radius: 6px; cursor: pointer;
+  color: rgba(255, 255, 255, .9);
 }
-.cls2-stage.cls2-theater > *:not(.cls2-screen) { display: none !important; }
-.cls2-theater .cls2-screen {
-  position: absolute; inset: 0; width: 100%; height: 100%;
-  aspect-ratio: auto; border: 0; border-radius: 0;
-}
-.cls2-theater .cls2-screen video { height: 100%; }
+.vc-btn:hover { background: rgba(255, 255, 255, .16); color: #fff; }
 
-/* 截帧回执：画在视频上，不画在工具栏里。
-   影院模式下工具栏被视频整块盖住 —— 回执放那儿，按了 S 就跟没按一样。 */
+.vc-time { flex: none; font-size: 12px; color: rgba(255, 255, 255, .84); font-variant-numeric: tabular-nums; }
+
+/* 进度条：一条 4px 的线，已播部分琥珀色。用原生 range 保证键盘/拖拽都能用，
+   只把外观抹掉自己画。 */
+.vc-bar {
+  flex: 1; min-width: 80px; height: 16px; margin: 0; background: transparent;
+  -webkit-appearance: none; appearance: none; cursor: pointer;
+}
+.vc-bar::-webkit-slider-runnable-track {
+  height: 4px; border-radius: 2px;
+  background: linear-gradient(90deg, var(--act) var(--p, 0%), rgba(255, 255, 255, .24) var(--p, 0%));
+}
+.vc-bar::-webkit-slider-thumb {
+  -webkit-appearance: none; width: 12px; height: 12px; border-radius: 50%;
+  background: #fff; margin-top: -4px; box-shadow: 0 0 0 3px rgba(0, 0, 0, .35);
+}
+.vc-bar::-moz-range-track { height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .24); }
+.vc-bar::-moz-range-progress { height: 4px; border-radius: 2px; background: var(--act); }
+.vc-bar::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: #fff; }
+
+/* 画质在控制条里：贴着按钮的尺寸，不再是浮在画面上的大块 */
+.vctrl .csel {
+  flex: none; height: 28px; min-width: 74px; padding: 0 6px;
+  background: transparent; border-color: transparent;
+  color: rgba(255, 255, 255, .9); font-size: 12px; font-weight: 600;
+}
+.vctrl .csel:hover { background: rgba(255, 255, 255, .16); border-color: transparent; color: #fff; }
+
 .cls2-screen .vshot {
-  position: absolute; left: 12px; bottom: 12px; z-index: 7;
+  /* 压在控制条上方两档：下面那档留给「正在合流」的提示 */
+  position: absolute; left: 12px; bottom: 96px; z-index: 7;
+  white-space: nowrap;
   max-width: calc(100% - 108px);
   padding: 7px 12px; border-radius: 999px;
   background: rgba(10, 8, 6, .86); border: 1px solid var(--line2);
   font-size: 11.5px; color: var(--tx2);
   backdrop-filter: blur(6px);
 }
-/* 合流提示和回执都在左下角，撞上了就把回执抬起来一层 */
-.cls2-screen:has(.vbuf) .vshot { bottom: 52px; }
+/* 回执固定在上、合流提示贴在下：两只都在左下角的时候，:has() 一失效就叠字。
+   一个 96 一个 14，中间隔开，不用依赖选择器支持。 */
 
-.vtheater-exit {
-  position: absolute; right: 10px; bottom: 10px; z-index: 8;
-  display: inline-flex; align-items: center; gap: 6px;
-  height: 28px; padding: 0 11px; border-radius: 8px;
-  border: 1px solid rgba(255, 255, 255, .18); background: rgba(12, 10, 8, .74);
-  color: rgba(255, 255, 255, .8); font-size: 12px; font-family: inherit;
-  cursor: pointer; backdrop-filter: blur(4px);
+
+
+
+/* ============================================================ Ctrl+F 搜索弹窗
+   它浮在**当前页面之上**，不换页。回车之后盒子平移形变到顶栏那只搜索框，
+   动画走完才切页 —— 「先看见它去了哪，页面再变」，比瞬间重排好懂得多。
+
+   两条跟全站一致的规矩：
+   1. 时长用 --t4（320ms，motion.css 里「整块内容进场」那一档），不随手写字面量；
+   2. 位移用 --eo（两头都收的曲线），跟抽屉/面板同一种手感。 */
+.smask {
+  /* 左边让出左栏那 56px —— 遮罩和弹窗要跟**内容区**对齐，不是跟整个视口。
+     视口中线是 800，而内容区中线是 828（左栏 56/2 的偏移）；
+     不扣这一下，弹窗在中间但比顶栏那只搜索框偏左 28px，
+     回车飞行时就能看出来「起点和落点不在一条竖线上」。
+     bottom/right 保持 0：遮罩还是要盖满右边和下边。 */
+  position: fixed; inset: 0 0 0 56px; z-index: 9002;
+  display: flex; align-items: flex-start; justify-content: center;
+  /* 起点在视口上三分之一处：正中央会正好压住正在看的正文，
+     而搜索弹窗是「临时问一句」，不该盖住主内容。 */
+  padding-top: 22vh;
+  background: rgba(8, 6, 5, .52);
+  backdrop-filter: blur(3px);
+  animation: smask-in var(--t2, 160ms) var(--ease, ease);
 }
-.vtheater-exit:hover { background: rgba(255, 176, 32, .92); color: #1A1000; border-color: rgba(255, 176, 32, .92); }
+/* 飞向顶栏的那一下：遮罩自己先淡出，好让人看清盒子的位移，
+   而不是视线被一层灰膜糊住。 */
+.smask.fly { animation: smask-out var(--t4, 320ms) var(--ease, ease) forwards; }
+.smask.fly .sbox { opacity: .96; }
+
+@keyframes smask-in { from { opacity: 0 } to { opacity: 1 } }
+@keyframes smask-out { to { opacity: 0 } }
+
+.sbox {
+  display: flex; align-items: center; gap: 10px;
+  width: min(560px, calc(100vw - 48px));
+  padding: 12px 16px; border-radius: 12px;
+  background: var(--card2, #1b1712);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, .46);
+  color: var(--tx2);
+  transform-origin: top center;
+  animation: sbox-in var(--t3, 240ms) var(--eo, ease);
+}
+.sbox input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  color: var(--tx); font-size: 15px; font-family: inherit;
+}
+.sbox input::placeholder { color: var(--tx3); }
+.sbox-x {
+  border: 0; background: transparent; color: var(--tx3); cursor: pointer;
+  padding: 3px; border-radius: 6px; display: inline-flex;
+}
+.sbox-x:hover { color: var(--tx); background: rgba(255, 255, 255, .08); }
+.sbox-hint { flex: none; font-size: 11px; color: var(--tx3); }
+/* 飞过去的时候不显示提示文字：它在缩小，留着会挤成两行。 */
+.sbox.flying .sbox-hint, .sbox.flying .sbox-x { opacity: 0; }
+
+/* 位移那一档：把 JS 量好的 translate/width 过渡出来。
+   只过渡 transform / width / border-radius —— 这三样参与形变，
+   其余（padding、字号）跟着 width 自己收，不用管。 */
+.sbox.flying {
+  /* 从中心缩放/位移：translate 的 delta 是按「中心对中心」算的，
+     transform-origin 必须是 center 才成立（默认就是 50% 50%，
+     这里显式写出来，免得哪天被 .sbox 的 transform-origin: top center 带走）。
+     注意 .sbox 基础规则里设了 transform-origin: top center（给入场动画用），
+     飞行时必须覆盖掉，否则 translate 会以顶部为基准，落点整体偏下。 */
+  transform-origin: center center;
+  transition: transform var(--t4, 320ms) var(--eo, ease),
+              width var(--t4, 320ms) var(--eo, ease),
+              border-radius var(--t4, 320ms) var(--eo, ease),
+              padding var(--t4, 320ms) var(--eo, ease);
+  border-radius: 999px;
+  padding: 5px 12px;
+}
+@keyframes sbox-in {
+  from { opacity: 0; transform: translateY(-10px) scale(.985) }
+  to { opacity: 1; transform: none }
+}
+
+/* 系统开了「减少动效」就别飞了：位移对前庭敏感的人是负担，
+   而且这一类用户本来也更希望操作干脆。theme.css 里已有全局兜底，
+   这里再补一条针对飞行本身的。 */
+@media (prefers-reduced-motion: reduce) {
+  .sbox, .sbox.flying, .smask, .smask.fly { animation: none !important; transition: none !important; }
+}
+/* 顶栏正中间的搜索槽。
+   flex:1 + 内部居中 —— 让搜索框落在**顶栏的几何中心**，
+   而不是「左边内容排完之后剩下的起点」（那样它会随左侧文字长短左右漂移，
+   视觉上根本不在中间）。min-width:0 是必须的：不写的话输入框会把顶栏撑宽。 */
+.app-mn .top-ctx { position: relative; }
+/* 真·居中：用绝对定位钉在顶栏的几何中点上，而不是 flex:1 之后在剩余空间里居中。
+
+   为什么 flex:1 不够：顶栏左边是课程名（最长 340px）、右边是「x/y 讲 + 距考 N 天」
+   两只 pill，两边宽度并不相等 —— 那么「剩余空间的中心」就不是「顶栏的中心」。
+   实测在 1600 宽下偏移 21px，看着就是「偏右一点点」，不是居中。
+   绝对定位 + translateX(-50%) 才是按顶栏自己的中点算的。
+
+   宽度压到 46%：在 1440 屏上约 620px，左边课程名 340 + 右边 pill 约 200
+   都还放得下，不会压上去。窄屏（<1100）改成静态流，避免叠加。 */
+.app-mn .top-ctx .tmid {
+  position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
+  width: min(420px, 46%);
+  display: flex; align-items: center; justify-content: center;
+  z-index: 2;
+}
+@media (max-width: 1100px) {
+  /* 窄屏放不下居中的框：退回文档流（跟右侧 pill 同一排），
+     宁可它偏右，也不能压在课程名上。 */
+  .app-mn .top-ctx .tmid {
+    position: static; transform: none; width: auto;
+    flex: 1 1 auto; min-width: 0; padding: 0 10px;
+  }
+}
+/* ============================================================ 顶栏搜索框
+   （这组基础样式被我上一轮删旧块时误删了，导致框没有边框/高度，
+     输入框塌成行内文本 —— 视觉上就是「样式崩了」。恢复并注明。）
+
+   它是全站唯一主动输入的地方：日常态安静（灰框、占位字），
+   聚焦态给一圈琥珀（让人一眼看见光标在哪）。 */
+.srchbox {
+  display: inline-flex; align-items: center; gap: 7px;
+  height: 30px; padding: 0 11px; border-radius: 999px;
+  background: rgba(255, 255, 255, .04);
+  border: 1px solid var(--line2);
+  color: var(--tx3);
+  transition: border-color var(--t2, 160ms) var(--ease, ease),
+              background var(--t2, 160ms) var(--ease, ease),
+              color var(--t2, 160ms) var(--ease, ease);
+}
+.srchbox:hover { border-color: var(--line); color: var(--tx2); background: rgba(255, 255, 255, .06); }
+.srchbox.on { border-color: var(--act); background: rgba(255, 255, 255, .08); color: var(--tx); }
+.srchbox input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  color: var(--tx); font-size: 12.5px; font-family: inherit;
+}
+.srchbox input::placeholder { color: var(--tx3); }
+.srchbox kbd {
+  flex: none; font: inherit; font-size: 10px; padding: 1px 5px; border-radius: 4px;
+  border: 1px solid var(--line2); color: var(--tx3); background: rgba(0, 0, 0, .25);
+}
+
+/* 居中那只框比之前宽一些：它是全站的主搜索入口，132px 太局促了。 */
+.app-mn .top-ctx .tmid .srchbox { width: min(420px, 100%); }
+.app-mn .top-ctx .tmid .srchbox input { width: 100%; }
+/* ============================================================ 搜索结果页
+   这是一个独立的搜索页（不是嵌在别处的列表），所以版式按「搜索结果页」来做：
+   搜索框居中在顶部、结果是一条居中定宽的条目流 —— 跟常见内容站一致，
+   而不是把内容从左边铺开（那样扫视成本高，也看不出这是个搜索页）。
+
+   居中用什么实现：不是给容器 margin:0 auto 就完事。
+   .spg 撑满内容区，内部 .sp-head / .sp-list 各自 max-width + margin 居中，
+   这样滚动条仍在最右侧（页面级滚动更自然），而内容在中轴线上。 */
+.spg { min-height: 100%; padding: 22px 26px 48px; display: flex; flex-direction: column; }
+
+/* ---------- 搜索头 ---------- */
+/* 搜索头：不再缩成 660 的窄条 —— 页宽多少就用多少。
+   框本身限一个舒服的阅读宽度（太长反而扫不稳），但**整行不居中缩窄**，
+   这样它和下面三栏的左边界对齐，页面看起来是一体的。 */
+.sp-head { max-width: 100%; }
+.sp-bar {
+  display: flex; align-items: center; gap: 10px;
+  padding: 11px 16px; border-radius: 12px;
+  background: var(--card, rgba(255, 255, 255, .04));
+  border: 1px solid var(--line2); color: var(--tx2);
+  transition: border-color var(--t2, 160ms) var(--ease, ease);
+}
+/* 聚焦/搜索中都给一圈琥珀：它是全站唯一主动输入的地方，
+   得让人一眼看见光标在哪、以及「它正在干活」。 */
+.sp-bar:focus-within, .sp-bar.busy { border-color: var(--amber, #d99b2f); }
+.sp-bar input {
+  flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+  color: var(--tx); font-size: 15px; font-family: inherit;
+}
+.sp-bar input::placeholder { color: var(--tx3); }
+.sp-x {
+  border: 0; background: transparent; color: var(--tx3); cursor: pointer;
+  padding: 3px; border-radius: 6px; display: inline-flex;
+}
+.sp-x:hover { color: var(--tx); background: rgba(255, 255, 255, .08); }
+.sp-meta { margin-top: 10px; font-size: 12px; color: var(--tx3); }
+.sp-meta b { color: var(--tx); font-weight: 700; }
+.sp-meta .bad { color: var(--bad); }
+
+.sp-warn {
+  margin: 14px 0 0; padding: 10px 12px; border-radius: 9px;
+  font-size: 12px; color: #d8a657; background: rgba(216, 166, 87, .07);
+  border: 1px solid rgba(216, 166, 87, .3);
+}
+.sp-warn > div + div { margin-top: 4px; }
+
+/* ---------- 空结果 ---------- */
+.sp-empty {
+  margin: 40px 0 0; text-align: center; color: var(--tx2);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+}
+.sp-empty .sub { font-size: 12px; color: var(--tx3); }
+
+/* ---------- 结果列表 ---------- */
+/* 三栏：左筛选 / 中结果 / 右上下文。
+   中栏 flex:1 吃掉剩下的宽度 —— 结果区是主角，两侧是辅助。
+   align-items:start 让左右两栏各自贴顶，不会因为中间很长而被拉高。 */
+.sp-cols {
+  margin-top: 18px; flex: 1; min-height: 0;
+  display: grid;
+  grid-template-columns: 196px minmax(0, 1fr) 232px;
+  gap: 22px;
+  align-items: start;
+}
+.sp-side { position: sticky; top: 0; }
+.sp-main { min-width: 0; }
+.sp-grp + .sp-grp { margin-top: 16px; }
+.sp-gh {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  border: 0; background: transparent; cursor: pointer; padding: 6px 2px;
+  color: var(--tx2); font-family: inherit;
+}
+.sp-gh b { font-size: 13px; color: var(--tx); font-weight: 700; }
+.sp-gh span { font-size: 11.5px; color: var(--tx3); }
+/* 折叠箭头：展开时朝下，收起时朝右。转的是图标不是整行，动作更小。 */
+.sp-gh .ic { transition: transform var(--t2, 160ms) var(--ease, ease); }
+.sp-grp.shut .sp-gh .ic { transform: rotate(-90deg); }
+
+.sp-items { margin-top: 6px; display: flex; flex-direction: column; gap: 8px; }
+.sp-item {
+  display: flex; align-items: flex-start; gap: 11px;
+  padding: 11px 13px; border-radius: 11px;
+  background: var(--card, rgba(255, 255, 255, .03));
+  border: 1px solid var(--line2);
+  transition: border-color var(--t2, 160ms) var(--ease, ease), background var(--t2, 160ms) var(--ease, ease);
+}
+.sp-item:hover { border-color: var(--line); background: var(--card2, rgba(255, 255, 255, .05)); }
+/* 点不动的那条整体压暗，而不是做成能点的样子。 */
+.sp-item.dead { opacity: .6; }
+
+/* 类别标：形状 + 颜色 */
+.sp-badge {
+  flex: none; width: 28px; height: 28px; border-radius: 8px;
+  display: grid; place-items: center;
+  border: 1px solid var(--line2); background: rgba(255, 255, 255, .05);
+}
+.sp-badge.t-a { color: var(--amber, #d99b2f); border-color: rgba(217, 155, 47, .34); background: rgba(217, 155, 47, .1); }
+.sp-badge.t-g { color: var(--ok, #6fbf73); border-color: rgba(111, 191, 115, .3); background: rgba(111, 191, 115, .1); }
+.sp-badge.t-p { color: #9b8cf0; border-color: rgba(155, 140, 240, .3); background: rgba(155, 140, 240, .1); }
+.sp-badge.t-d { color: var(--tx2); }
+
+.sp-body { flex: 1; min-width: 0; }
+.sp-t { font-size: 13.5px; color: var(--tx); line-height: 1.45; word-break: break-word; }
+.sp-s {
+  margin-top: 3px; font-size: 12px; color: var(--tx2); line-height: 1.5;
+  /* 摘要最多两行：第三行以后是噪音，占地方还把列表推长。 */
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  word-break: break-word;
+}
+.sp-f { margin-top: 6px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; }
+.sp-kind { padding: 1px 6px; border-radius: 5px; border: 1px solid var(--line2); }
+.sp-kind.t-a { color: var(--amber, #d99b2f); border-color: rgba(217, 155, 47, .3); }
+.sp-kind.t-g { color: var(--ok, #6fbf73); border-color: rgba(111, 191, 115, .28); }
+.sp-kind.t-p { color: #9b8cf0; border-color: rgba(155, 140, 240, .28); }
+.sp-kind.t-d { color: var(--tx2); }
+.sp-from { color: var(--tx3); }
+.sp-sc { color: var(--tx3); font-variant-numeric: tabular-nums; }
+
+.sp-go {
+  flex: none; align-self: center;
+  border: 1px solid var(--line2); background: transparent; color: var(--tx2);
+  font-size: 11.5px; font-family: inherit; padding: 5px 11px; border-radius: 7px; cursor: pointer;
+  transition: color var(--t2, 160ms) var(--ease, ease), border-color var(--t2, 160ms) var(--ease, ease);
+}
+.sp-go:hover:not(:disabled) { color: var(--tx); border-color: var(--line); }
+.sp-go.ghost, .sp-go:disabled { cursor: default; opacity: .55; }
+
+/* 窄屏：把左右留白收掉，别让内容被挤成一条。 */
+@media (max-width: 720px) {
+  .spg { padding: 18px 12px 48px; }
+  .sp-item { padding: 10px 11px; }
+}
+/* ---------- 左栏：类别筛选 ---------- */
+.sp-sideHd {
+  font-size: 11px; font-weight: 700; letter-spacing: .04em;
+  color: var(--tx3); text-transform: none;
+  padding: 0 2px 8px;
+}
+.sp-facet {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  border: 0; background: transparent; cursor: pointer;
+  padding: 6px 8px; border-radius: 7px;
+  color: var(--tx2); font-family: inherit; font-size: 12.5px; text-align: left;
+  transition: background var(--t2, 160ms) var(--ease, ease), color var(--t2, 160ms) var(--ease, ease);
+}
+.sp-facet:hover { background: rgba(255, 255, 255, .05); color: var(--tx); }
+/* 选中态：琥珀底 + 亮字。跟全站「一色一职」一致 —— 琥珀只标当前项。 */
+.sp-facet.on { background: rgba(217, 155, 47, .13); color: var(--tx); font-weight: 650; }
+.sp-facet span:first-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-facet b { flex: none; font-size: 11px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.sp-facet.on b { color: var(--amber, #d99b2f); }
+.sp-dot { width: 7px; height: 7px; border-radius: 50%; flex: none; background: var(--tx3); }
+.sp-dot.t-a { background: var(--amber, #d99b2f); }
+.sp-dot.t-g { background: var(--ok, #6fbf73); }
+.sp-dot.t-p { background: #9b8cf0; }
+.sp-dot.t-d { background: var(--tx3); }
+.sp-sideEmpty { font-size: 11.5px; color: var(--tx3); padding: 6px 8px; }
+
+/* ---------- 右栏：最近搜过 + 统计 ---------- */
+.sp-recent {
+  display: flex; align-items: center; gap: 7px; width: 100%;
+  border: 0; background: transparent; cursor: pointer;
+  padding: 6px 8px; border-radius: 7px; text-align: left;
+  color: var(--tx2); font-family: inherit; font-size: 12.5px;
+}
+.sp-recent span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sp-recent:hover { background: rgba(255, 255, 255, .05); color: var(--tx); }
+.sp-recent.on { color: var(--tx); background: rgba(255, 255, 255, .06); }
+.sp-clear {
+  margin-top: 4px; border: 0; background: transparent; cursor: pointer;
+  font-family: inherit; font-size: 11px; color: var(--tx3); padding: 4px 8px;
+}
+.sp-clear:hover { color: var(--tx2); text-decoration: underline; }
+.sp-stat {
+  display: flex; align-items: baseline; justify-content: space-between;
+  padding: 5px 8px; font-size: 12px; color: var(--tx2);
+}
+.sp-stat b { color: var(--tx); font-weight: 700; font-variant-numeric: tabular-nums; }
+.sp-stat.bad b { color: var(--bad); }
+
+/* ---------- 中栏：空态引导 ---------- */
+.sp-intro { padding: 46px 0 0; }
+.sp-intro .t { font-size: 15px; font-weight: 700; color: var(--tx); }
+.sp-intro .d { margin-top: 6px; font-size: 12.5px; color: var(--tx3); line-height: 1.6; }
+.sp-intro .tips { margin-top: 14px; display: flex; gap: 8px; flex-wrap: wrap; }
+.sp-tip {
+  border: 1px solid var(--line2); background: transparent; color: var(--tx2);
+  font-family: inherit; font-size: 12px; padding: 5px 12px; border-radius: 999px; cursor: pointer;
+  transition: color var(--t2, 160ms) var(--ease, ease), border-color var(--t2, 160ms) var(--ease, ease);
+}
+.sp-tip:hover { color: var(--tx); border-color: var(--line); }
+
+/* 窄屏：三栏放不下就叠成一栏，别硬挤成两条缝。 */
+@media (max-width: 1080px) {
+  .sp-cols { grid-template-columns: 1fr; gap: 16px; }
+  .sp-side { position: static; }
+  /* 叠起来之后左右两栏变成横排 chip，别占掉整屏高度。 */
+  .sp-left { display: flex; flex-wrap: wrap; gap: 6px; }
+  .sp-left .sp-sideHd { width: 100%; }
+  .sp-left .sp-facet { width: auto; }
+}
+/* ============================================================ 弹窗实时结果
+.swrap {
+  display: flex; flex-direction: column; align-items: center;
+  width: min(560px, calc(100vw - 48px));
+}
+/* 结果面板跟搜索框同宽、紧贴在下沿，像一整块：
+   分成两个浮层会让它看起来像两个东西。 */
+.sres {
+  width: 100%; margin-top: 8px; max-height: 46vh; overflow-y: auto;
+  background: var(--card2, #1b1712); border: 1px solid var(--line);
+  border-radius: 11px; box-shadow: 0 16px 40px rgba(0, 0, 0, .42);
+  padding: 5px;
+  animation: sres-in var(--t3, 240ms) var(--eo, ease);
+}
+@keyframes sres-in { from { opacity: 0; transform: translateY(-5px) } to { opacity: 1; transform: none } }
+.sres-item {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  border: 0; background: transparent; cursor: pointer; text-align: left;
+  padding: 8px 9px; border-radius: 7px; font-family: inherit;
+}
+.sres-item:hover { background: rgba(255, 255, 255, .06); }
+.sres-kind {
+  flex: none; font-size: 10.5px; color: var(--tx3);
+  border: 1px solid var(--line2); border-radius: 5px; padding: 1px 6px;
+}
+.sres-t { flex: 1; min-width: 0; font-size: 12.5px; color: var(--tx); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sres-sc { flex: none; font-size: 11px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.sres-empty { padding: 12px; text-align: center; font-size: 12px; color: var(--tx3); }
+.sres-foot { padding: 7px 9px 4px; font-size: 11px; color: var(--tx3); border-top: 1px solid var(--line2); margin-top: 3px; }
+/* 飞行时结果面板整块消失：它会跟着盒子一起缩成一条，很难看。 */
+.smask.fly .sres { opacity: 0; transition: opacity var(--t2, 160ms) var(--ease, ease); }
+
+/* 搜索页顶栏那只框：比普通页大一号（它是这一页的主输入）。 */
+.app-mn .top-ctx .tmid .srchbox.big { height: 36px; padding: 0 15px; gap: 9px; }
+.app-mn .top-ctx .tmid .srchbox.big input { font-size: 13.5px; }

@@ -15,13 +15,17 @@ import { Icon } from './Icon'
 
    两处共用：课程主页侧栏（画质那一行）、课堂播放器工具栏。 */
 
-type St = { logged_in: boolean; expires_in_days?: number | null; note?: string }
+type St = {
+  logged_in: boolean; expires_in_days?: number | null; note?: string
+  uname?: string; face?: string; level?: number; mid?: number
+}
 type Me = { ok: boolean; logged_in: boolean; uname?: string; face?: string; mid?: number; level?: number }
 type Qr = { url: string; qrcode_key: string; svg?: string | null; expires_in?: number }
 
 export function BiliLogin({ label = true, compact = false }: { label?: boolean; compact?: boolean }) {
+  /* 一个工具就够：昵称头像跟着登录态一起回来（以前分两个请求，
+     中间那一瞬是「已登录 · 没有昵称」，看着像没登上）。 */
   const st = useTool<St>('bili_login_state')
-  const me = useTool<Me>('bili_me')
   const [open, setOpen] = useState(false)
   const [qr, setQr] = useState<Qr | null>(null)
   const [msg, setMsg] = useState<string | null>(null)
@@ -78,7 +82,7 @@ export function BiliLogin({ label = true, compact = false }: { label?: boolean; 
         setDone(true)
         setQr(null)
         setMsg(r.data?.say || '登录成功，现在能看 1080P 了')
-        st.run(); me.run()
+        st.run()
         setTimeout(() => { if (!dead) close() }, 1600)
         return
       }
@@ -97,7 +101,7 @@ export function BiliLogin({ label = true, compact = false }: { label?: boolean; 
     const r = await callTool('bili_logout', {})
     setArmedOut(false)
     setMsg(r.ok ? '已退出，回到 480P' : (r.error || '没退成'))
-    st.run(); me.run()
+    st.run()
   }
 
   return (
@@ -116,12 +120,12 @@ export function BiliLogin({ label = true, compact = false }: { label?: boolean; 
            一行塞「B 站账号」+ 昵称 + 天数 + 退出按钮，在 288px 的侧栏里必然挤成竖排 ——
            踩过，截图里「B 站账号」被压成四个字一行一行往下掉。 */
         <div className="blrow">
-          {on ? <img className="av" src={me.data?.face || ''} alt="" referrerPolicy="no-referrer" /> : null}
+          {on && st.data?.face ? <img className="av" src={st.data.face} alt="" referrerPolicy="no-referrer" /> : null}
           <div className="who">
-            <b>{on ? (me.data?.uname || '已登录') : '没登录'}</b>
+            <b>{on ? (st.data?.uname || '已登录') : '没登录'}</b>
             <i>
               {on
-                ? '1080P' + (me.data?.level ? ' · Lv' + me.data.level : '') + (days != null ? ' · 剩 ' + days + ' 天' : '')
+                ? '1080P' + (st.data?.level ? ' · Lv' + st.data.level : '') + (days != null ? ' · 剩 ' + days + ' 天' : '')
                 : '最高 480P · 扫码解锁 1080P'}
             </i>
           </div>

@@ -18,8 +18,8 @@ import time
 import uuid
 
 from . import (agent, asr, bcz, bili, config, context, datahub, decider, evidence, explain,
-               intake, intent, kb, model_router, notesrc, perm, planner, platform_ai,
-               store, streamer, websearch, writing, xmind)
+               fsops, intake, intent, kb, model_router, notesrc, perm, planner,
+               platform_ai, store, streamer, websearch, writing, xmind)
 
 REGISTRY = {}
 
@@ -62,9 +62,12 @@ _WRITE_TOOLS = frozenset([
     # 直接写库 / 写盘的
     "bili_logout", "cache_asset", "fetch_word_detail", "finish_lesson", "grade_answer",
     "grade_word", "log_playback", "make_backup", "note_pull_xmind", "note_push_src",
-    "note_save", "note_src_cfg", "note_src_pull", "pick_lesson", "pick_question_part",
+    "note_save", "note_rebind", "note_src_cfg", "note_src_pull", "pick_lesson",
+    "pick_question_part",
     "pick_word_mode", "plan_today", "rate_explain", "save_note", "session_archive",
-    "session_new", "shot_del", "shot_rename", "shot_save", "shot_tag", "star_word",
+    # shot_batch_del / shot_batch_tag 是批量的写库动作：不登记就等于可以空口说"删了 9 条"
+    "session_new", "shot_del", "shot_batch_del", "shot_batch_tag", "shot_rename",
+    "shot_save", "shot_tag", "star_word",
     "fav_sentence", "submit_exam", "tag_error", "writing_grade", "ai_login",
     "stream_prefetch", "bili_sync", "play_quality", "bili_progress_sync",
     "bili_login_poll",
@@ -78,6 +81,8 @@ _WRITE_TOOLS = frozenset([
     "kb_build",
     # 装语音模型会往 data/asr/models 落 140MB 文件
     "asr_setup",
+    # 通用读写：直接改用户的配置/数据文件，登记了才躲不开「改了哪儿」这一问
+    "fs_write", "fs_edit", "db_exec",
 ])
 
 
@@ -296,9 +301,14 @@ def _bili_push_quiet(lesson_id, pos_sec):
         if not _sync_on():
             return
         now = time.time()
-        if now - _BILI_UP.get(lesson_id, 0) < 300:
+        last = _BILI_UP.get(lesson_id)
+        # 两道闸：5 分钟内不重复报；位置没动（暂停着）也不报。
+        # 用户原话「有进度修改才报」—— 定时无脑刷只是给 B 站塞垃圾。
+        if last and now - last[0] < 300:
             return
-        _BILI_UP[lesson_id] = now
+        if last and abs(int(float(pos_sec or 0)) - last[1]) < 30:
+            return
+        _BILI_UP[lesson_id] = (now, int(float(pos_sec or 0)))
         ck = _bili_cookie()
         if not ck:
             return
@@ -491,16 +501,21 @@ def t_plan_today(**_):
 
 
 @tool("plan_set_budget", config.PERM_CONFIRM,
-      "改考试日期 / 每天时长 / 背单词时长（只传要改的那项即可；写进本机，写盘要二次确认）")
+      "改考试日期 / 每天时长 / 背单词时长 / 每科每天几节（只传要改的那项即可；写盘要二次确认）。"
+      "参数：exam_date, minutes_per_day, hours_per_day, vocab_minutes, "
+      "per_subject（如 [{\"subject\":\"math\",\"lessons_per_day\":1},…]）")
 def t_plan_set_budget(exam_date=None, minutes_per_day=None, vocab_minutes=None,
-                      hours_per_day=None, **_):
-    """倒计时排程的唯一入口。考试日期和每天时长必须由用户填——系统不猜。
+                      hours_per_day=None, per_subject=None, **_):
+    """倒计时排程的入口。考试日期和每天时长必须由用户填——系统不猜。
 
     猜出来的日期就是编数字，编出来的排程会让人按假计划复习，这比没有计划更糟。
 
     **部分改**：只传「每天几小时」也行，其余沿用已经存下来的值。
     以前只改时长得走 intake 流水线，模型就会回「要不要我找工具改」——
     一句话的事变成一串问句，这正是人不爱用手管助手的原因。
+
+    **per_subject 是给「一天一节数学、一节 C、一节英语」这种话留的**：
+    它按讲数排，不按总分切。传了它就不要再要求用户给每天总分钟。
     """
     before = planner.budget()
     # 人说「3 小时」，不用他自己换算成 180 分钟
@@ -509,14 +524,16 @@ def t_plan_set_budget(exam_date=None, minutes_per_day=None, vocab_minutes=None,
             minutes_per_day = int(round(float(hours_per_day) * 60))
         except (TypeError, ValueError):
             return {"ok": False, "error": "每天几小时得是数字，收到的是 %s" % hours_per_day}
-    r = planner.set_budget(exam_date, minutes_per_day, vocab_minutes)
+    r = planner.set_budget(exam_date, minutes_per_day, vocab_minutes, per_subject)
     if not r.get("ok"):
         return r
     b = r["budget"]
     if b.get("set") and b.get("ok"):
-        store.add_event("plan_budget", payload="%s %dmin" % (b["exam_date"], b["minutes_per_day"]))
+        store.add_event("plan_budget", payload="%s %smin" % (b.get("exam_date"),
+                                                             b.get("minutes_per_day")))
     # 改完立刻重算一遍，把新数报出来 —— 只回「改好了」等于让人自己去点一遍看
-    after = planner.plan_budget()
+    quota_mode = bool(b.get("per_subject"))
+    after = planner.plan_week(7) if quota_mode else planner.plan_budget()
     changed = []
     if before.get("exam_date") != b.get("exam_date"):
         changed.append("考试日期 %s → %s" % (before.get("exam_date") or "（没设）", b.get("exam_date")))
@@ -526,8 +543,11 @@ def t_plan_set_budget(exam_date=None, minutes_per_day=None, vocab_minutes=None,
     if before.get("vocab_minutes") != b.get("vocab_minutes"):
         changed.append("背单词 %s → %s 分钟" % (before.get("vocab_minutes"),
                                            b.get("vocab_minutes")))
-    out = {"ok": True, "set": b.get("set"), "budget": b,
-           "changed": changed,
+    if (before.get("per_subject") or []) != (b.get("per_subject") or []):
+        changed.append("每科每天 " + ("、".join(
+            "%s %d 节" % (x.get("name") or x["subject"], x["lessons_per_day"])
+            for x in b["per_subject"]) if b.get("per_subject") else "清空了"))
+    out = {"ok": True, "set": b.get("set"), "budget": b, "changed": changed,
            "recomputed": {"days_left": after.get("days_left"),
                           "lesson_budget_minutes": after.get("lesson_budget_minutes"),
                           "pending_hours": after.get("pending_hours"),
@@ -535,6 +555,16 @@ def t_plan_set_budget(exam_date=None, minutes_per_day=None, vocab_minutes=None,
                           "cut_hours": after.get("cut_hours"),
                           "coverage": after.get("coverage"),
                           "cut_total": after.get("cut_total")}}
+    if quota_mode and changed:
+        days = [x for x in (after.get("days") or []) if x.get("blocks")]
+        head = days[0] if days else None
+        out["say"] = ("改完了：" + "；".join(changed) + "。" +
+                      ("明天排的是：" + "；".join(
+                          "%s %d 分钟" % (x.get("subject_name"), x.get("minutes"))
+                          for x in head["blocks"]) + "。" if head else "这几天没有可排的讲次。"))
+        out["effect"] = "；".join(changed)
+        out["week"] = after
+        return out
     if changed:
         cov = after.get("coverage")
         out["note"] = ("改完了：" + "；".join(changed) +
@@ -548,8 +578,12 @@ def t_plan_set_budget(exam_date=None, minutes_per_day=None, vocab_minutes=None,
         out["effect"] = "；".join(changed)
     else:
         out["effect_kind"] = "noop"
-        out["say"] = ("这几项本来就是这些值（考试日期 %s、每天 %s 分钟），"
-                      "没改动。" % (b.get("exam_date") or "没设", b.get("minutes_per_day")))
+        _q = b.get("per_subject") or []
+        out["say"] = ("这几项本来就是这些值（考试日期 %s、每天 %s 分钟%s），没改动。"
+                      % (b.get("exam_date") or "没设", b.get("minutes_per_day"),
+                         "、" + "、".join("%s %d 节" % (x.get("name") or x["subject"],
+                                                        x["lessons_per_day"]) for x in _q)
+                         if _q else ""))
     return out
 
 
@@ -2273,6 +2307,33 @@ _GEN_KEEP = 0            # 0 = 不限。生成题不淘汰：它带 ref_point（
                          # 以前这里是 200，超了就丢最老的 —— 结果「我保存的题」会在第 201 道
                          # 时无声消失（2026-10-30 用户明确反对）。想恢复上限就改这个数。
 
+# 出题查重的相似度门槛。跟检索那边（0.52）不是一回事：
+#   检索 = 「找相关的」      → 宁可多给几条让用户挑
+#   查重 = 「判定是同一道」  → 必须够严，判错就是丢一道好题
+# 所以这里定得比检索高一大截：同一道题换个说法再生成一次，分数基本落在 0.80 以上；
+# 两道只是同考点的题一般到不了 0.75。宁可放过个别重复，也不能把两道不一样的题
+# 当成一道删掉 —— 后者是丢真东西。
+# 出题查重的相似度门槛。**这个数是实测出来的，不是拍的**（2026-10-31 校准）：
+#   同一道题自己跟自己比   n=14 落在 0.599 – 0.885，中位 0.743
+#   不同的题互相比         n=14 最高没超过 0.72 这条线
+# 所以取 0.72：能抓住绝大多数重复，又不会把两道不一样的题判成一道。
+# 一开始写的是 0.80（照搬「查重要严」的直觉），实测发现连**完全一样**的题干
+# 都只有 0.73 左右 —— 那个阈值会让查重形同虚设，一道重复都抓不到。
+#
+# 为什么「同一道题」不是 1.00： encodes 的是「题干+选项+解析」拼起来的整段，
+# 而拿去查的是只剩题干 —— 两段文本本来就不一样长，分数自然到不了满分。
+# 这不是 bug，是「比题干」这件事的固有形态，阈值按它来定就行。
+_GEN_DUP_SCORE = 0.72
+
+
+def kb_semantic_ok():
+    """语义检索现在能不能用。不能就别去查重 —— 查重是锦上添花，
+    因为模型没装就把出题整个断掉，那是把便利功能做成了依赖。"""
+    try:
+        return bool((kb.available() or {}).get("ok"))
+    except Exception:
+        return False
+
 
 def _json_arr_of(text):
     """从模型回复里抠出 JSON 数组；抠不出来就返回 None。"""
@@ -2511,6 +2572,34 @@ def t_quiz_gen(subject=None, topic=None, n=5, lesson_id=None, **_):
             continue
         seen.add(k)
         uniq.append(it)
+    # 跟库里已有的生成题查一遍重。
+    # 为什么本批次内的字面去重不够：同一道题换个措辞再生成一次，stem 一个字都不重，
+    # 上面那个 seen 认不出来 —— 于是同一道题在题源里躺着两条，做了第一遍
+    # 第二遍还会冒出来，用户会觉得「它一直在出同一道」。
+    # 所以这里按语义比一遍。阈值定 0.80 而不是检索默认的 0.52：
+    # 检索是「找相关的」，放宽一点没关系；查重是「判定是同一道」，必须够严，
+    # 宁可漏掉个别重复，也不能把两道不一样的题当成一道丢掉。
+    dup_of = {}
+    try:
+        if kb_semantic_ok():
+            for it in new_items:
+                st = str(it.get("stem") or "").strip()
+                if len(st) < 12:
+                    continue
+                rr = kb.search(st, subject=sid, k=1, kind="AI 生成题",
+                               min_score=_GEN_DUP_SCORE, _allow_cross=False)
+                h = (rr.get("hits") or [])
+                if h:
+                    dup_of[it.get("no")] = {
+                        "ref": h[0].get("ref"), "score": h[0].get("score"),
+                        "title": (h[0].get("title") or "")[:40],
+                    }
+    except Exception:
+        dup_of = {}
+    if dup_of:
+        kept_dups = [d for d in dup_of.items()]
+        uniq = [it for it in uniq if it.get("no") not in dup_of]
+
     # 去重之后全都留着（_GEN_KEEP=0 时不砍）。题号只增不复用，所以只会在尾部追加，
     # 不会洗掉 answers 里已有的作答记录。
     if _GEN_KEEP and len(uniq) > _GEN_KEEP:
@@ -2536,15 +2625,19 @@ def t_quiz_gen(subject=None, topic=None, n=5, lesson_id=None, **_):
     miss = len(good) - len(kept)
     return {"ok": True, "source": src_id, "generated": len(arr), "kept": len(kept),
             "dropped": len(bad), "mismatch": len(mismatch), "mismatch_sample": mismatch[:3],
+            # 查重剔掉了几道、被判为重复的原型是谁 —— 一律说出来。
+            # 不出这个功能问题才怪：题少了用户不知道为什么少，只会觉得「它漏出」。
+            "dup_drop": len(dup_of), "dup_sample": list(dup_of.values())[:3],
             "in_source": len(uniq), "subject": sid, "subject_name": sname,
             "lesson_id": str(lesson_id) if lesson_id else None,
             "lesson_title": les_title,
             "anchor_from": why_src, "model": r.get("model") or r.get("provider"),
             "questions": fresh,
-            "say": ("出了 %d 道（依据：%s），复核后入库 %d 道%s。已进题源「AI 生成 · %s」，"
+            "say": ("出了 %d 道（依据：%s），复核后入库 %d 道%s%s。已进题源「AI 生成 · %s」，"
                     "练习页能直接刷，判分按精确判。"
                     % (len(good), why_src, len(kept),
                        "，丢了 %d 道（自己两次答案不一致）" % miss if miss else "",
+                       "，剔了 %d 道重复（库里已有同义的题）" % len(dup_of) if dup_of else "",
                        sname)),
             "effect": "+%d ai questions -> %s" % (len(kept), src_id),
             "note": "生成题跟真题分表存放（data/gen_questions.json），判分档 exact；"
@@ -3493,6 +3586,13 @@ def t_save_note(lesson_id=None, text=None, pos_sec=0, **_):
     r = store.save_note(lesson_id, text, pos_sec)
     store.add_event("note", lesson_id=lesson_id, seconds=0,
                     payload="len=%d pos=%.0f" % (len(text or ""), float(pos_sec or 0)))
+    # 写入即索引：刚记的这句下一秒就要能搜到，不等 kb_build。
+    # 索引失败不能连累存笔记 —— 笔记已经落库了，只是这一条暂时搜不到，
+    # 所以吃掉异常，下次全量重建自然会补上。
+    try:
+        kb.index_note(lesson_id, text)
+    except Exception:
+        pass
     _c = store.note_count()
     return {"note": r, "count": _c,
             "say": "笔记存下了（%d 字，挂在 %s 的第 %s 秒）。这一讲现在一共 %d 条笔记。" % (
@@ -4476,9 +4576,17 @@ def t_shot_list(subject=None, lesson_id=None, limit=200, q=None, origin=None, **
                 r["lesson_title"] = les.get("title") or ""
     # 分桶给前端用（今天 / 昨天 / 本周 / 更早），但桶的边界按真实 ts 算，
     # 不在前端重算一遍 —— 两边算必然会出现「卡片在一个桶、分组在另一个桶」。
+    # 讲次清单也一起给：截图库的筛选器要它（哪几讲有图、各几张）。
+    # 不另开一个工具 —— 前端为了填一个下拉再发一次请求，白等一拍。
+    lessons = []
+    for it in store.all_shot_lessons(subject):
+        _s, les = datahub.find_lesson(datahub.proto(), it["lesson_id"])
+        lessons.append({"lesson_id": it["lesson_id"], "n": it["n"],
+                        "title": (les or {}).get("title") or it["lesson_id"]})
     return {"ok": True, "shots": rows, "count": len(rows), "q": q or "",
             "total": store.shot_count(subject), "subject": subject or "",
-            "origin": origin or "", "tags": store.all_shot_tags(subject)}
+            "origin": origin or "", "tags": store.all_shot_tags(subject),
+            "lessons": lessons}
 
 
 @tool("shot_del", config.PERM_LOCAL, "从截图库里摘掉一条（盘上的图不删）")
@@ -4532,6 +4640,128 @@ def t_shot_tag(id=None, tags=None, **_):
     return {"ok": True, "shot": row, "tags": _tg,
             "say": "标签改成：%s（%d 个）。" % ("、".join(_tg) if _tg else "（空）", len(_tg)),
             "effect": "tags %s" % ",".join(_tg)}
+
+
+def _ids_arg(ids):
+    """批量工具的 ids 参数：收数组，也收 "a,b" 这种串（前端图省事）。
+
+    去重但保持原顺序：同一个 id 传两遍不能算两条 —— 否则回执里 deleted=2
+    而库里只少了一条，就是编数字。返回 (clean, error)。
+    """
+    if ids is None:
+        return [], "没给 ids"
+    if isinstance(ids, str):
+        ids = [t for t in re.split(r"[,，;；\s]+", ids) if t]
+    if not isinstance(ids, (list, tuple)):
+        return [], "ids 要给一个数组"
+    clean, seen = [], set()
+    for x in ids:
+        k = str(x or "").strip()
+        if not k or k in seen:
+            continue
+        seen.add(k)
+        clean.append(k)
+    if not clean:
+        return [], "ids 是空的，没有一条要处理"
+    return clean, None
+
+
+def _tags_arg(v):
+    """标签参数：收数组，也收 "数学,易错" 这种串。
+
+    字符串必须先切开再处理 —— 直接把字符串丢进 for 循环会变成逐字拆，
+    "math" 会被存成 m / a / t / h 四个单字标签，库里从此多一堆垃圾。
+    """
+    if v is None:
+        return []
+    if isinstance(v, str):
+        return [t for t in re.split(r"[,，;；\s]+", v) if t]
+    if isinstance(v, (list, tuple)):
+        return list(v)
+    return None
+
+
+@tool("shot_batch_del", config.PERM_LOCAL, "一次从截图库里摘掉多条（盘上的图不删）")
+def t_shot_batch_del(ids=None, **_):
+    """批量删记录。口径跟 shot_del 一致：只删库，盘上的图一张不动。
+
+    回执必须能对账：deleted 是真删掉的行数、missing 是传进来但库里本来就没有的、
+    failed 是写库时出的错。三个数对不上就说明没干成，不能报 ok。
+    """
+    want, err = _ids_arg(ids)
+    if err:
+        return {"ok": False, "error": err, "deleted": 0, "missing": [],
+                "failed": 0, "failed_detail": []}
+    have = store.shots_existing(want)
+    missing = [i for i in want if i not in have]
+    try:
+        deleted = store.del_shots(sorted(have))
+    except Exception as e:
+        return {"ok": False, "error": "删库失败：%s" % str(e)[:160], "deleted": 0,
+                "missing": missing, "failed": len(have),
+                "failed_detail": [{"why": "删库失败：%s" % str(e)[:160]}]}
+    for sid in sorted(have):
+        try:
+            store.add_event("shot_del", sid, payload="batch")
+        except Exception:
+            pass                     # 记账失败不影响「删没删成」这个事实
+    # failed 给的是条数（前端要先显示「几条没成」），原因单独放 failed_detail：
+    # 一个数组塞进 failed，前端 Number() 一下就是 NaN，界面上会写「NaN 条没删掉」。
+    failed, detail = 0, []
+    if deleted != len(have):
+        failed = len(have) - deleted
+        detail.append({"why": "库里说有 %d 条，实际只删掉 %d 条（可能有别的进程同时在改）"
+                              % (len(have), deleted)})
+    ok = not failed and deleted > 0
+    out = {"ok": ok, "deleted": deleted, "missing": missing, "failed": failed,
+           "failed_detail": detail, "asked": len(want)}
+    if not ok:
+        out["error"] = (detail[0]["why"] if detail
+                        else "这些 id 在截图库里都没有，一条也没删")
+    out["say"] = ("删掉 %d 条截图记录（盘上的图都还在）。%s%s" % (
+        deleted,
+        ("没找到 %d 条：%s。" % (len(missing), "、".join(missing[:5]))) if missing else "",
+        "" if ok else "这次没删成，原因见 error。"))
+    out["effect"] = "batch delete %d shot(s)" % deleted
+    return out
+
+
+@tool("shot_batch_tag", config.PERM_LOCAL, "批量给截图加 / 减标签（只传要加减的，不用传完整数组）")
+def t_shot_batch_tag(ids=None, add=None, remove=None, **_):
+    """批量加/减标签。清洗规则跟 shot_tag 共用 store.clean_tags，不另写一份。
+
+    add / remove 是增量（跟单条 shot_tag 的「完整数组」相反）：批量改标签时
+    没人会去逐条读原标签再拼一遍，那样传上来的原标签一旦过期就会互相覆盖。
+    """
+    want, err = _ids_arg(ids)
+    if err:
+        return {"ok": False, "error": err, "updated": 0, "missing": [],
+                "failed": 0, "failed_detail": []}
+    # 先验形状再清洗：_tags_arg 返回 None 表示「给了个认不出的类型」。
+    # 直接丢给清洗函数的话它把 None 当空数组，于是「参数错了」会变成「静默什么都没做」。
+    raw_add, raw_rem = _tags_arg(add), _tags_arg(remove)
+    if raw_add is None or raw_rem is None:
+        return {"ok": False, "error": "add / remove 要给数组（或逗号分隔的串）",
+                "updated": 0, "missing": [], "failed": 0, "failed_detail": []}
+    add_c, rem_c = store.clean_tags(raw_add), store.clean_tags(raw_rem)
+    if not add_c and not rem_c:
+        return {"ok": False, "error": "既没给要加的标签，也没给要减的标签，这一趟什么都不会变",
+                "updated": 0, "missing": [], "failed": 0, "failed_detail": []}
+    r = store.tag_shots(want, add=add_c, remove=rem_c)
+    updated, missing = r["updated"], r["missing"]
+    failed, detail = r["failed"], r["failed_detail"]
+    ok = not failed and updated > 0
+    out = {"ok": ok, "updated": updated, "missing": missing, "failed": failed,
+           "failed_detail": detail, "add": add_c, "remove": rem_c, "asked": len(want)}
+    if not ok:
+        out["error"] = (detail[0]["why"] if detail
+                        else "这些 id 在截图库里都没有，一条也没改")
+    out["say"] = ("改了 %d 条截图的标签：加 %s，减 %s。%s%s" % (
+        updated, "、".join(add_c) or "（无）", "、".join(rem_c) or "（无）",
+        ("没找到 %d 条：%s。" % (len(missing), "、".join(missing[:5]))) if missing else "",
+        "" if ok else "这次没改成，原因见 error。"))
+    out["effect"] = "batch tag %d shot(s)" % updated
+    return out
 
 
 @tool("shot_disk", config.PERM_LOCAL, "截图库在本机占了多少字节")
@@ -4875,6 +5105,14 @@ def t_note_save(lesson_id=None, title=None, tree=None, src="local", src_id=None,
         return r
     store.add_event("note", lesson_id=lesson_id, seconds=0,
                     payload="canvas save %s src=%s" % (mid, src))
+    # 写入即索引：新画的节点立刻能被搜到。
+    # 这里要用刚 bis 存进去的 tree，不能用调用方传进来的原始 tree ——
+    # map_id 命中已有行时 save_canvas 可能沿用库里那棵树。
+    try:
+        kb.index_canvas(mid, title=title, tree=(r or {}).get("tree") or tree,
+                        lesson_id=(r or {}).get("lesson_id") or lesson_id)
+    except Exception:
+        pass
     return {"ok": True, "map": r, "count": store.canvas_count(),
             "say": "画布「%s」存下了，图库里一共 %d 张。" % (
                 (r or {}).get("title") or mid, store.canvas_count()),
@@ -4898,6 +5136,12 @@ def t_note_del(map_id=None, **_):
     k = store.del_canvas(map_id)
     if not k:
         return {"ok": False, "error": "没删掉，可能已经被删过了"}
+    # 画布没了，索引里那条也要跟着走 —— 不然会「搜得到、点进去是空的」，
+    # 那比搜不到更让人恼火（跟 drop_paper 同一个道理）。
+    try:
+        kb.drop("canvas", map_id)
+    except Exception:
+        pass
     store.add_event("note_del", map_id)
     title = old.get("title") or ""
     say = ("画布「%s」从库里删了。盘上的原文件（如果有）没动 —— "
@@ -4971,10 +5215,174 @@ def t_note_open(map_id=None, **_):
     return {"ok": True, "exists": True, "map": d, "tree": d.get("tree") or {}}
 
 
+def _lesson_index():
+    """讲次 id → {id, title, chapter, n}，整库建一次。
+
+    n 是「第几讲」，直接取 id 末尾那个数字：`english-69` 就是英语第 69 讲。
+    这么取是因为它跟 lessons[] 里的位置是同一个数 —— 实测本机 889 讲，
+    尾号与下标+1 全部吻合，没有一例例外。id 尾号不是数字时（以后换了数据源）
+    退回它在本门课 lessons[] 里的位置：这也是数据里真有的，不拿标题里的序号去猜。
+
+    为什么建索引而不是每张画布现翻：note_list 一屏几十张、每张挂 0~N 讲，
+    现翻 datahub.find_lesson 是「画布数 × 讲次数」的翻页，正是要避免的 O(n²)。
+    索引建一次，后面每个 id 都是 O(1)（t_lesson_notes 也是这个做法）。
+    """
+    idx = {}
+    for s in (datahub.proto().get("subjects") or []):
+        for i, l in enumerate(s.get("lessons") or []):
+            lid = str(l.get("id") or "").strip()
+            if not lid:
+                continue
+            tail = lid.rsplit("-", 1)[-1]
+            idx[lid] = {
+                "id": lid,
+                "title": l.get("title") or "",
+                "chapter": l.get("chapter") or "",
+                "n": int(tail) if tail.isdigit() else i + 1,
+                "subject": s.get("id"), "subject_name": s.get("name"),
+            }
+    return idx
+
+
+def _lesson_titles(ids, idx=None):
+    """一串讲次 id → ([{id,title,chapter,n}], [翻不到的 id])。
+
+    翻不到**不等于**这一讲没有标题：是课程库里真没有这个 id（讲次被删、
+    课程库换过、旧绑定留下的尾巴）。所以标题留空、id 原样交出去，
+    并且单独列进 unknown —— 前端能照实显示「这一讲已不在课程库」，
+    而不是让这张画布悄悄少挂几讲（那是最坏的一种假）。
+    """
+    idx = idx if idx is not None else _lesson_index()
+    out, unknown = [], []
+    for x in (ids or []):
+        lid = str(x or "").strip()
+        if not lid:
+            continue
+        hit = idx.get(lid)
+        if not hit:
+            unknown.append(lid)
+            out.append({"id": lid, "title": "", "chapter": "", "n": None})
+            continue
+        out.append({"id": lid, "title": hit["title"], "chapter": hit["chapter"],
+                    "n": hit["n"]})
+    return out, unknown
+
+
+def _canvas_meta(row):
+    """画布的元数据（不含 tree）。note_rebind 三路回执统一走它。
+
+    为什么要把 tree 摘掉：改绑定关系碰不到树，而一张画布的树动辄几万字。
+    成功那一路本来就只有元数据（set_canvas_lessons 不 select tree），
+    要是失败/未改那两路带着整棵树回去，同一个字段在不同结果里长得不一样，
+    前端就得分别判断 —— 这种不一致迟早变成「改失败时反而更卡」。
+    """
+    d = dict(row or {})
+    d.pop("tree", None)
+    return d
+
+
+@tool("note_rebind", config.PERM_LOCAL, "改一张画布挂在哪几讲（不动节点树）")
+def t_note_rebind(map_id=None, lesson_ids=None, **_):
+    """只改绑定关系：这张画布挂到哪几讲。
+
+    为什么不在 note_save 里顺手改：note_save 是「整张图落盘」，调用方手里
+    没有树就只能传 {} —— 那会把用户刚画的东西清成白纸。改绑定跟树无关，
+    走 store.set_canvas_lessons，SQL 里根本不出现 tree 这一列。
+
+    lesson_ids：
+      - 传 []      = 明确解绑全部
+      - 不传/None  = 这次不改，把现在挂着的原样交回去（不因为忘了传就清空）
+    两种不能混 —— 混了就会出现「只是点了保存，绑定没了」。
+
+    课程库里找不到的 id **不写进库**，原样列在 unknown 里并 ok=False：
+    静默丢掉才是最坏的 —— 用户以为挂上了 5 讲，其实只挂上 2 讲，
+    而界面上看不出差别。所以宁可整次不写，让他先改对 id。
+    """
+    if not map_id:
+        return {"ok": False, "error": "没给画布 id", "need": "map_id"}
+    old = store.get_canvas(str(map_id))
+    if not old:
+        return {"ok": False, "error": "图库里没有这张画布（id=%s）" % map_id,
+                "need": "map_id"}
+
+    # 传了 None = 不改；传 [] = 解绑。这里用 is None 区分，不能用真值判断，
+    # 否则空列表跟没传会被认成同一件事，解绑就永远做不到。
+    if lesson_ids is None:
+        ids = list(old.get("lesson_ids") or [])
+        # 老行只有一个 lesson_id 时 store 已经退回成 [lesson_id]，口径统一
+        if not ids and old.get("lesson_id"):
+            ids = [str(old["lesson_id"])]
+        return {"ok": True, "map": _canvas_meta(old), "lesson_ids": ids,
+                "unknown": [], "changed": False,
+                "say": "没给新的讲次清单，这一张的绑定保持原样（%d 讲）。" % len(ids),
+                "effect": "canvas %s unchanged" % map_id}
+
+    if isinstance(lesson_ids, str):
+        # 只传了一个 id 的常见写法（前端偶尔直接丢字符串）—— 当单元素列表，
+        # 别按字符拆成 ['e','n',...]，那会得到一串「不存在的讲次」。
+        lesson_ids = [lesson_ids]
+    want = []
+    for x in (lesson_ids or []):
+        s = str(x or "").strip()
+        if s and s not in want:
+            want.append(s)
+
+    idx = _lesson_index()
+    unknown = [x for x in want if x not in idx]
+    if unknown:
+        # 一个都不写：半成功会把「哪几讲真挂上了」变成用户猜不到的事。
+        return {"ok": False, "map": _canvas_meta(old),
+                "lesson_ids": old.get("lesson_ids") or [], "unknown": unknown,
+                "error": "有 %d 个讲次在课程库里找不到，这次一个都没写：%s"
+                         % (len(unknown), "、".join(unknown)),
+                "say": "这些讲次 id 在课程库里不存在：%s。"
+                       "绑定没动，先把 id 改对再挂。" % "、".join(unknown),
+                "effect": "canvas %s rebind rejected (unknown lesson ids)" % map_id}
+
+    row = store.set_canvas_lessons(str(map_id), want)
+    if not row:
+        return {"ok": False, "error": "要改的那张画布不在了，可能刚被删掉",
+                "need": "map_id"}
+    got = row.get("lesson_ids") or []
+    store.add_event("note_rebind", lesson_id=(got[0] if got else None), seconds=0,
+                    payload="canvas %s -> %s" % (
+                        map_id, json.dumps(got, ensure_ascii=False)))
+    # 索引里那条的主讲次跟着走（subject 是拿 lesson_id 前缀算的）。
+    # 绑定真变了才重编 —— 没变就别白编一遍。
+    changed = got != list(old.get("lesson_ids") or [])
+    kb_err = None
+    if changed:
+        try:
+            kb.index_canvas(map_id, title=old.get("title"),
+                            tree=old.get("tree"), lesson_id=(got[0] if got else None))
+        except Exception as e:
+            # 索引是内容的从属物，编不了不该让这次绑定失败；但要如实报出来，
+            # 不然「刚改的搜不到」会被当成 bug 找很久。
+            kb_err = ("%s: %s，这次改动没进检索索引，下次重建会补上"
+                      % (type(e).__name__, e))
+    say = (("这一张挂到 %d 讲上了：%s。" % (len(got), "、".join(got))) if got else
+           "这一张已解绑，现在不挂任何讲次（图还在，归到「未挂讲次」里）。")
+    out = {"ok": True, "map": row, "lesson_ids": got, "unknown": [],
+           "changed": changed, "say": say,
+           "effect": "canvas %s rebind -> %s" % (
+               map_id, ",".join(got) if got else "none")}
+    if kb_err:
+        out["kb_error"] = kb_err
+    return out
+
+
 @tool("note_list", config.PERM_LOCAL, "列画布（可按讲次 / 来源过滤）")
 def t_note_list(lesson_id=None, src=None, limit=100):
     rows = store.list_canvas(lesson_id=lesson_id, src=src, limit=limit)
     now_ts = store.now()
+    # 讲次标题只建一次索引，循环里逐张取（不要每行现翻 proto，那是 O(n²)）。
+    # 建不起来（课程库文件坏了）就整个留空并如实说，不假装「这张没挂讲次」。
+    try:
+        les_idx = _lesson_index()
+        les_err = None
+    except Exception as e:
+        les_idx, les_err = {}, "%s: %s" % (type(e).__name__, e)
+    unknown_all = []
     for r in rows:
         r["age"] = _ago(r.get("updated_ts"), now_ts)
         # 卡片上那张小图必须真是这张画布的结构，不能画假图。
@@ -4987,7 +5395,24 @@ def t_note_list(lesson_id=None, src=None, limit=100):
         # 用现成的 _count_nodes（上面 note_pull_xmind 也在用它）——
         # 顺手在已经取到的整棵树上数一遍，不多查一次库。树坏了就是 0。
         r["nodes"] = _count_nodes(full.get("tree"))
-    return {"maps": rows, "count": len(rows), "total": store.canvas_count()}
+        # 分组要显示人话（讲次标题 + 章节），前端自己拿不到这些。
+        # lesson_ids 为空、旧行只有 lesson_id 时，list_canvas 已经退回主讲次了，
+        # 这里照它的结果翻，不另外再判一次（两处判必然会出现前后不一致）。
+        titles, unknown = _lesson_titles(r.get("lesson_ids") or [], les_idx)
+        r["lesson_titles"] = titles
+        if unknown:
+            # 行内也报一份：前端某一行挂着「已不在课程库」的讲次时要当场标出来，
+            # 不能只有整屏汇总 —— 用户看的是这一张卡片。
+            r["unknown"] = unknown
+            unknown_all.extend(unknown)
+    out = {"maps": rows, "count": len(rows), "total": store.canvas_count()}
+    if unknown_all:
+        out["unknown"] = sorted(set(unknown_all))
+    if les_err:
+        out["lesson_error"] = les_err
+        out["note"] = ("课程库读不出来（%s），所以这一屏的讲次标题全空、"
+                       "分组只能按 lesson_id 显示 —— 不是这些画布没挂讲次。" % les_err)
+    return out
 
 
 
@@ -5105,8 +5530,14 @@ def call(name, args=None, confirmed=False, progress=None):
         ok, note = False, "工具内部异常"
     ms = int((time.time() - t0) * 1000)
     _ensure_report(name, data, ok)
-    store.log_tool(name, ent["perm"], json.dumps(args or {}, ensure_ascii=False)[:400],
-                   ok, ms, note)
+    # 记流水是「记账」，不是业务。库被占/盘满/文件被锁的时候写不进去 ——
+    # 那不能让整次调用变成 500：前端只看到「服务器炸了」，而真实结果其实已经拿到了。
+    # （2026-10-30 踩过：残留的第二个 python 进程占着 WAL，任何工具都 500。）
+    try:
+        store.log_tool(name, ent["perm"], json.dumps(args or {}, ensure_ascii=False)[:400],
+                       ok, ms, note)
+    except Exception:
+        pass
     return {"ok": ok, "tool": name, "perm": ent["perm"], "desc": ent["desc"],
             "ms": ms, "ts": store.now(), "data": data}
 
@@ -5279,6 +5710,13 @@ def t_bili_pages(bvid=None, limit=60, **_):
 # 这张表放在代码里而不是塞进提示词，是因为它得**可测** —— 有断言盯着
 # 「每个工具都归了类」「触发词都能指到真工具」，写漏一个当场失败。
 CATS = [
+    # 这一堆是「不管什么需求都可能用上」的底层能力：专用工具表达不了的东西，
+    # 直接读文件、改文件、改库。放第一是因为模型最容易漏掉它、又最容易白造工具。
+    ("改文件·改数据库", "改配置、改数据、找某个字段写在哪 —— 专用工具说不清的时候直接改，别回头找用户要参数",
+     ["改配置", "改文件", "改库", "写文件", "读文件", "看文件", "找字段", "改计划", "plan.json",
+      "kv 表", "配置文件", "改数据", "这个文件在哪"],
+     ["fs_ls", "fs_read", "fs_grep", "fs_write", "fs_edit", "db_query", "db_exec"]),
+
     ("找资料·联网", "用户要什么本机没有 —— 想学某门课、想找教程、想找真题，第一反应是出去搜，不是告诉他「没有」",
      ["想学", "找课", "搜课", "搜课程", "网上搜", "去网上找", "去搜", "搜一下", "搜索", "搜资料", "找资料",
       "资料", "教程", "考纲", "真题下载", "找视频", "视频课", "网课", "公开课", "b站", "B站",
@@ -5362,7 +5800,7 @@ CATS = [
     ("笔记·画布", "导图、笔记、截图、笔记来源导入",
      ["笔记", "画布", "导图", "思维导图", "截图", "xmind", "joplin", "整理成图",
       "登录xmind", "连xmind", "xmind登录", "xmind断开"],
-     ["note_list", "note_open", "note_save", "note_load", "note_from_md",
+     ["note_list", "note_open", "note_save", "note_rebind", "note_load", "note_from_md",
       "save_note", "get_note", "lesson_notes",
       "xmind_connect", "xmind_disconnect",
       "xmind_list_maps", "xmind_read_map", "note_pull_xmind", "note_push_xmind",
@@ -5410,7 +5848,7 @@ def catalog(where=None):
 # 收窄到「核心 4 类 + 本页 1~3 类」≈ 1200 字，省下来的不是一点点。
 # 但**不能收得太狠**：模型看不到某类工具，就会以为自己没这个本事（踩过）。
 # 所以其余类在末尾用一行点名，并明确让它 find_tool 现查。
-CORE_CATS = ("接手·从零开始", "计划·预算·课表", "看本机有什么", "找资料·联网")
+CORE_CATS = ("改文件·改数据库", "接手·从零开始", "计划·预算·课表", "看本机有什么", "找资料·联网")
 FOCUS_CATS = {
     "today": ("计划·预算·课表", "接手·从零开始"),
     "classroom": ("上课·记播放", "讲题·核对", "看本机有什么"),
@@ -5718,7 +6156,7 @@ def t_bili_login_poll(qrcode_key=None, **_):
             "cookie_len": len(d.get("cookie") or "")}
 
 
-@tool("bili_login_state", config.PERM_LOCAL, "看看现在登录没登录、还有多久过期")
+@tool("bili_login_state", config.PERM_LOCAL, "看看现在登录没登录、还有多久过期、登的是谁")
 def t_bili_login_state(**_):
     ck = _bili_cookie()
     exp = store.kv_get(KV_BILI_EXPIRES)
@@ -5728,9 +6166,21 @@ def t_bili_login_state(**_):
             left = max(0, int(int(exp) - time.time()) // 86400)
         except Exception:
             left = None
-    return {"logged_in": bool(ck), "expires_in_days": left,
-            "note": ("已登录" + ("，约剩 %d 天" % left if left is not None else ""))
-                    if ck else "没登录 —— 免登录只能到 480P，登录后能到 1080P"}
+    # 昵称和头像一起带上：界面只调这一个工具就够。
+    # 以前要再调一次 bili_me，两个请求回来的时机不一样 —— 中间那一瞬是
+    # 「已登录 · 没有昵称」，看着像登录没成功。
+    me = None
+    if ck:
+        try:
+            me, _err = bili.me(ck)
+        except Exception:
+            me = None
+    out = {"logged_in": bool(ck), "expires_in_days": left,
+           "uname": (me or {}).get("uname"), "face": (me or {}).get("face"),
+           "level": (me or {}).get("level"), "mid": (me or {}).get("mid"),
+           "note": ("已登录" + ("，约剩 %d 天" % left if left is not None else ""))
+                   if ck else "没登录 —— 免登录只能到 480P，登录后能到 1080P"}
+    return out
 
 
 @tool("bili_logout", config.PERM_LOCAL, "退出登录，把本机的 SESSDATA 清掉")
@@ -6105,6 +6555,286 @@ def t_kb_stats(**_):
     return {"ok": True, **s, "say": say}
 
 
+# ============================================================ 全局搜索
+# 顶栏那个搜索框和 Ctrl+F 都走这一个工具：一路打字要的是「这一屏够看」，
+# 不是「四个工具各自返回一堆、前端再自己拼」。所以在这里并行查、统一 shape、
+# 统一排序，前端只负责画。
+#
+# 四条铁律（跟项目其它地方一个口径）：
+#   1. 每一条结果都必须带 where（来自哪一路）和 goto（点了去哪），没有去处的
+#      宁可不返回 —— 点不动的结果等于骗人。
+#   2. 任何一路超时/报错都不拖垮整次搜索：那一路标记 error 单独说，其余照常返回。
+#      用户搜一个词，不该因为 fs_grep 扫不动就什么都看不到。
+#   3. fs_grep 那条路最慢（要 walk 目录），所以它默认**只对 data/ 和笔记相关
+#      目录扫**，并且有预算上限；要全盘扫得显式开 deep=True。
+#   4. 不猜分数。字面那条路没有 score 字段就不给 score；语义那条路有就给，
+#      前端按「有分数的排前面」排，不把两种分混成一个数。
+
+# fs_grep 默认扫这几处：本机真实数据 + 文档/资料。不扫 app/、node_modules、
+# 模型和缓存 —— 那些是程序自己的东西，搜出来一堆 import 行没有意义。
+_GS_GREEP_ROOTS = ("data", "docs", "sync")
+_GS_FILE_BUDGET = 260        # 一次最多扫这么多文件，超了就停（防止卡死界面）
+_GS_HIT_LIMIT = 24           # 每一路最多返回这么多条
+
+# 页面导航：输入页名直接跳页。跟「搜内容」分开算，因为它不是命中，是去处。
+_GS_PAGES = [
+    ("今日", "today"), ("课程主页", "home"), ("课堂", "classroom"),
+    ("课表", "schedule"), ("练习", "practice"), ("笔记", "notes"),
+    ("全部笔记", "notesAll"), ("背单词", "vocab"), ("考场", "exam"),
+    ("统计", "stats"), ("作文", "writing"), ("设置", "agent"),
+    ("画布", "canvas"), ("截图库", "shots"), ("课程库", "courses"),
+]
+
+
+def _gs_in(q, name):
+    """页名/工具名的软匹配：包含或首字命中就算，让用户打「课堂」能出「课堂」。"""
+    q = (q or "").strip().lower()
+    n = (name or "").lower()
+    if not q or not n:
+        return False
+    return q in n or n in q
+
+
+def _gs_pages(q, limit=6):
+    out = []
+    for label, key in _GS_PAGES:
+        if _gs_in(q, label):
+            out.append({"kind": "页面", "title": label, "snippet": "",
+                        "where": "导航", "goto": {"type": "page", "page": key}})
+            if len(out) >= limit:
+                break
+    return out
+
+
+def _gs_settings(q, limit=8):
+    """从工具表里搜能力/开关项。命中了跳设置页 —— 那里才是能真的点它的地方。"""
+    out = []
+    try:
+        rows = catalog()
+    except Exception:
+        return out
+    seen = set()
+    for r in rows:
+        for nm in r.get("tools") or []:
+            if nm in seen or nm not in REGISTRY:
+                continue
+            d = REGISTRY[nm].get("desc") or ""
+            if _gs_in(q, nm) or _gs_in(q, d):
+                seen.add(nm)
+                out.append({"kind": "能力", "title": nm, "snippet": d[:120],
+                            "where": "设置 · " + (r.get("cat") or ""),
+                            "goto": {"type": "page", "page": "agent"}})
+                if len(out) >= limit:
+                    return out
+    return out
+
+
+def _gs_literal(q, limit=10):
+    """字面那条路：search_all。快，命中准，但不认字就一条都没有。"""
+    fn = REGISTRY.get("search_all", {}).get("fn")
+    if not fn:
+        return [], None
+    try:
+        r = fn(q=q, limit=limit)
+    except Exception as e:
+        return [], "字面检索出错：%s" % e
+    # 注意：search_all 成功后返回体里**没有 ok 键**（它有 total / lessons / words…），
+    # 只有失败时才带 ok=False。所以这里判「失败」而不是「成功」——
+    # 写成 if not r.get("ok") 会把每次正常结果都当成失败。
+    if r.get("ok") is False:
+        return [], r.get("error") or "字面检索没成"
+    out = []
+    for w in r.get("words") or []:
+        out.append({"kind": "单词", "title": "%s %s" % (w.get("w") or "", w.get("cn") or ""),
+                    "snippet": (w.get("cn") or "")[:100], "where": "词书",
+                    "goto": {"type": "page", "page": "vocab"}})
+    for c in r.get("cards") or []:
+        out.append({"kind": "考点", "title": (c.get("q") or "")[:60],
+                    "snippet": (c.get("a") or "")[:100],
+                    "where": "考点卡 · " + (c.get("card") or ""),
+                    "goto": {"type": "page", "page": "practice"}})
+    for qq in r.get("questions") or []:
+        out.append({"kind": "题目", "title": (qq.get("stem") or "")[:60], "snippet": "",
+                    "where": "题库 · " + (qq.get("part") or ""),
+                    "goto": {"type": "page", "page": "practice"}})
+    for l in r.get("lessons") or []:
+        out.append({"kind": "讲次", "title": l.get("title") or "", "snippet": "",
+                    "where": (l.get("subject_name") or "") + " · " + (l.get("chapter") or ""),
+                    "goto": {"type": "page", "page": "classroom"}})
+    return out[:limit], None
+
+
+def _gs_semantic(q, limit=8, subject=None):
+    """语义那条路：kb_search。不认字也能翻出来，但要等模型（首次约 6 秒）。"""
+    try:
+        r = kb.search(q, subject=subject, k=limit)
+    except Exception as e:
+        return [], "语义检索出错：%s" % e
+    if not r.get("ok"):
+        return [], r.get("error") or "语义检索没成"
+    out = []
+    for h in r.get("hits") or []:
+        out.append({"kind": "语义", "title": (h.get("title") or "")[:60],
+                    "snippet": (h.get("text") or "")[:140], "score": h.get("score"),
+                    "where": "%s · %s" % (h.get("kind") or "", h.get("subject") or ""),
+                    "goto": {"type": "kb", "source": h.get("source"), "ref": h.get("ref")}})
+    return out, (r.get("note") if not out else None)
+
+
+# 这些后缀/路径**永远不会**作为「文件里的字」出现在搜索结果里：
+# 它们没有可读的文字，或者渲进去就是乱码。
+_GS_NOISE_EXT = (
+    ".db", ".db-wal", ".db-shm", ".sqlite", ".sqlite3",
+    ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".ico", ".svg",
+    ".mp4", ".mkv", ".webm", ".mp3", ".wav", ".m4a", ".flac",
+    ".zip", ".7z", ".gz", ".rar", ".tar", ".woff", ".woff2", ".ttf", ".eot",
+    ".onnx", ".pt", ".pth", ".bin", ".pkl", ".npy", ".npz", ".exe", ".dll",
+    ".lock", ".log",
+)
+_GS_NOISE_DIR = ("node_modules", "app-dist", "__pycache__", ".git", "models",
+                 "cache", "thumbs", "backup", ".vscode")
+
+
+def _gs_noise(path, text):
+    """这一条能不能进结果。判断依据只有两样：它是什么文件、里面有没有可读的字。"""
+    p = (path or "").replace("\\", "/").lower()
+    base = p.rsplit("/", 1)[-1]
+    if any(base.endswith(e) or ("/" + e) in p for e in _GS_NOISE_EXT):
+        return True
+    for d in _GS_NOISE_DIR:
+        if ("/" + d + "/") in p or p.startswith(d + "/"):
+            return True
+    if not text:
+        return True
+    # 可读字符占比：低于六成就认为这不是文本（防止把二进制错位印出来）。
+    # 这一条挡的是 fsops.grep 漏网的：它按 utf-8+ignore 读，
+    # 二进制文件往往能"读"出零星几个可打印字符。
+    good = sum(1 for ch in text[:200] if ch.isprintable() or ch in "\t\r\n")
+    return good < max(6, len(text[:200]) * 0.6)
+
+
+def _gs_files(q, limit=10, deep=False):
+    """文件内容那条路：按正则扫。只扫数据/资料目录，且有文件数预算。
+
+    为什么默认不开全盘：os.walk 一个项目目录几千个文件，界面会明显卡一下。
+    默认这几个目录装的是用户自己的东西（笔记、导出的资料），搜它们才有意义。
+    """
+    try:
+        rx = re.compile(re.escape(q), re.I)
+    except re.error:
+        return [], None
+    hits, scanned = [], 0
+    roots = ["."] if deep else list(_GS_GREEP_ROOTS)
+    try:
+        for root in roots:
+            if len(hits) >= limit or scanned >= _GS_FILE_BUDGET:
+                break
+            g = fsops.grep(rx.pattern, root, None, limit)
+            if not g.get("ok"):
+                continue
+            scanned += int(g.get("files_scanned") or 0)
+            for h in g.get("hits") or []:
+                f = h.get("file") or ""
+                txt = (h.get("text") or "").strip()
+                # 三类不要，因为出现在结果里是纯粹的噪音：
+                #   1) 二进制/数据库及其 WAL、缓存、图片、模型 —— 没有可读的文字；
+                #   2) node_modules / app-dist 之类构建产物 —— 一堆 import 行；
+                #   3) 拆出来全是不可见字符的行 —— 说明这个文件不是文本。
+                # 宁可少给几条，也不给一堆点开是乱码的结果。
+                if _gs_noise(f, txt):
+                    continue
+                hits.append({"kind": "文件", "title": f,
+                             "snippet": txt[:160],
+                             "where": "第 %s 行" % (h.get("line") or "?"),
+                             "goto": {"type": "file", "path": f}})
+                if len(hits) >= limit:
+                    break
+    except Exception as e:
+        return hits[:limit], "文件检索出错：%s" % e
+    return hits[:limit], None
+
+
+def _gs_sessions(q, limit=6):
+    """AI 会话：搜自己跟助手聊过的话。"""
+    try:
+        rows = store.session_search(str(q or ""), limit)
+    except Exception as e:
+        return [], "会话检索出错：%s" % e
+    out = []
+    for s in rows or []:
+        out.append({"kind": "会话", "title": (s.get("title") or "（无标题）")[:60],
+                    "snippet": (s.get("snippet") or s.get("text") or "")[:140],
+                    "where": "AI 对话", "goto": {"type": "page", "page": "agent"}})
+    return out, None
+
+
+@tool("search_global", config.PERM_LOCAL,
+      "全局搜索：一次查页面 / 能力 / 题考点词 / 语义 / 本机文件 / AI 会话，统一排序返回")
+def t_search_global(q=None, subject=None, deep=False, semantic=True, limit=10, **_):
+    """顶栏搜索框与 Ctrl+F 的后端。
+
+    几路怎么摆：
+    - 页面和设置项最先：用户打「课堂」「导出」这种词，他要的是去那儿，不是命中。
+    - 字面（search_all）在语义前面：它快且准，命中了就不用等模型。
+    - 语义（kb_search）兜底：字面对不上时才显出价值，所以即使字面有结果也查，
+      但只在标了 semantic 时查 —— 服务刚起、模型还没预热时前端可以关掉它。
+    - 文件（fs_grep）最后：它最慢，且结果对"我在找什么"最弱。
+    """
+    q = str(q or "").strip()
+    if not q:
+        return {"ok": False, "error": "搜什么？给我一个词", "groups": []}
+
+    groups, errors = [], {}
+    total = 0
+
+    def push(name, items, err=None):
+        nonlocal total
+        if err:
+            errors[name] = err
+        if items:
+            groups.append({"name": name, "items": items})
+            total += len(items)
+
+    # 1) 去处优先：页面 + 能力（这两路是本地内存匹配，零成本）
+    push("去哪儿", _gs_pages(q) + _gs_settings(q))
+
+    # 2) 字面
+    lit, e = _gs_literal(q, limit=int(limit))
+    if lit:
+        push("字面命中", lit, e)
+    elif e:
+        errors["字面命中"] = e
+
+    # 3) 语义（可关：模型没预热时前端会关掉它，别让整次搜索等在那儿）
+    if semantic:
+        sem, e2 = _gs_semantic(q, limit=8, subject=subject)
+        if sem:
+            push("按意思找到", sem, e2)
+        elif e2:
+            errors["按意思找到"] = e2
+
+    # 4) 本机文件（默认只扫数据/资料目录）
+    fl, e3 = _gs_files(q, limit=int(limit), deep=bool(deep))
+    if fl:
+        push("文件里出现过", fl, e3)
+    elif e3:
+        errors["文件里出现过"] = e3
+
+    # 5) AI 会话
+    ss, e4 = _gs_sessions(q, limit=6)
+    if ss:
+        push("聊过", ss, e4)
+    elif e4:
+        errors["聊过"] = e4
+
+    say = "搜到 %d 条" % total if total else "「%s」在本机没找到。换个说法，或者让助手联网找一次。" % q
+    if errors:
+        say += "（%s 那一路没查成：%s）" % ("、".join(errors.keys()),
+                                        "；".join(errors.values())[:100])
+    return {"ok": True, "q": q, "total": total, "groups": groups,
+            "errors": errors, "say": say}
+
+
 @tool("asr_status", config.PERM_LOCAL,
       "语音转文字装没装、加载没加载、本机有没有现成模型（只读，不触发任何下载）")
 def t_asr_status(**_):
@@ -6131,4 +6861,91 @@ def t_asr_setup(force=False, **_):
     st = asr.status()
     return {"ok": True, "started": r.get("started"), "say": r.get("say"),
             "installed": st.get("installed"), "size": st.get("size"), "job": st.get("job")}
+
+
+# ---------------------------------------------------------------- 通用读写
+# 为什么有这一组：每加一个功能就加一个专用工具，工具涨到 175 个还是不够用。
+# 用户想改成「一天一节数学一节 C」这种，现有 plan_set_budget 根本表达不了，
+# 与其再造一个 plan_set_quota，不如让它直接看文件、改文件。
+# 路径都相对 研学台/ 这个应用目录；项目根是它的上一级（workbench/、outputs/ 在那边）。
+
+@tool("fs_ls", config.PERM_LOCAL,
+      "列目录看有什么文件（真 stat：大小、改动时间）。改东西之前先看一眼，别凭印象猜文件名")
+def t_fs_ls(path=".", pattern=None, **_):
+    r = fsops.ls(path, pattern)
+    if r.get("ok"):
+        r["say"] = "列了 %s：%d 项" % (r.get("path"), r.get("count", 1))
+    return r
+
+
+@tool("fs_read", config.PERM_LOCAL,
+      "读文件。纯文本按行给（带行号）；docx/pdf/xlsx/pptx/odt/epub/rtf 会拆成文字；"
+      "视频音频图片只报身份和路径，不拆内容。大文件用 start/lines 分段")
+def t_fs_read(path, start=1, lines=400, **_):
+    r = fsops.read(path, start, lines)
+    if r.get("ok"):
+        r["say"] = ("读了 %s 第 %d–%d 行（共 %d 行）"
+                    % (r.get("path"), r.get("start"), r.get("end"), r.get("total_lines"))
+                    if "total_lines" in r else
+                    "读了 %s（%s，%d 字）" % (r.get("path"), r.get("kind"), r.get("chars") or 0))
+    return r
+
+
+@tool("fs_grep", config.PERM_LOCAL,
+      "按正则搜文件内容，返回命中行和行号。定位配置项在哪、哪个字段叫这名，都用它")
+def t_fs_grep(pattern, path=".", glob=None, limit=80, **_):
+    r = fsops.grep(pattern, path, glob, limit)
+    if r.get("ok"):
+        r["say"] = "搜到 %d 处（翻了 %d 个文件）" % (r.get("count"), r.get("files_scanned"))
+    return r
+
+
+@tool("fs_write", config.PERM_CONFIRM,
+      "整份写文件（新建或覆盖，自动备份到 data/backup/fs/）。"
+      "配置类文件（data/*.json、config.local.json）直接改这里就行，不用找专用工具")
+def t_fs_write(path, content, append=False, **_):
+    r = fsops.write(path, content, append)
+    if not r.get("ok"):
+        return r
+    r["say"] = ("新建了 %s（%d 字节）" if r.get("created") else "写了 %s（%d → %d 字节）") \
+               % ((r["path"], r["bytes_after"]) if r.get("created")
+                  else (r["path"], r.get("bytes_before", 0), r["bytes_after"]))
+    r["effect"] = {"kind": "file", "path": r["path"], "backup": r.get("backup")}
+    return r
+
+
+@tool("fs_edit", config.PERM_CONFIRM,
+      "在文件里精确替换一段原文（原文必须唯一，否则拒绝——不替你猜改哪处）。"
+      "改一两行用这个比整份重写安全")
+def t_fs_edit(path, old, new, replace_all=False, **_):
+    r = fsops.edit(path, old, new, replace_all)
+    if not r.get("ok"):
+        return r
+    r["say"] = "改了 %s，替换 %d 处" % (r.get("path"), r.get("replaced", 1))
+    r["effect"] = {"kind": "file", "path": r.get("path"), "backup": r.get("backup")}
+    return r
+
+
+@tool("db_query", config.PERM_LOCAL,
+      "直接查 SQLite（data/study.db）。只读，一条语句。"
+      "配置在 kv 表（k/v 两列），作答在 answers，进度在 lesson_progress。先查清楚再改")
+def t_db_query(sql, params=None, db="data/study.db", limit=200, **_):
+    r = fsops.sql(sql, params, db, limit, write=False)
+    if r.get("ok"):
+        r["say"] = "查到 %d 行" % r.get("count", 0)
+    return r
+
+
+@tool("db_exec", config.PERM_CONFIRM,
+      "直接改 SQLite（增删改，一条语句，写前按天备份库）。"
+      "改 kv 表就是改配置：UPDATE kv SET v=? WHERE k=?...")
+def t_db_exec(sql, params=None, db="data/study.db", **_):
+    r = fsops.sql(sql, params, db, 200, write=True)
+    if not r.get("ok"):
+        return r
+    r["say"] = "改了 %s，影响 %s 行" % (r.get("db"), r.get("affected"))
+    r["effect"] = {"kind": "db", "db": r.get("db"), "affected": r.get("affected"),
+                   "backup": r.get("backup")}
+    return r
+
 

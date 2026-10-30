@@ -776,7 +776,26 @@ def vocab_owner(proto_data=None):
 
 
 # ---------------------------------------------------------------- 首屏
-def bootstrap():
+def bootstrap(include_lessons=False):
+    """首屏快照。
+
+    include_lessons=False（默认）时 subjects[] 里**不带** lessons：889 讲的完整数组
+    实测 158KB，占整包七成，而真要用逐讲数据的页面（课程主页 / 课堂）走的是
+    list_lessons 工具 —— 那里才是讲次加 done 标记的真源头。
+    这里只留 dur_total（该科目所有 lesson.dur 之和，秒）和 done_n（已完成讲次数），
+    够课程库算小时数、画进度条。
+
+    但 done **照旧下发**（不计入 include_lessons）：老界面 web/app.js 真的在读它
+    —— paintWeekDone 用 subjects[].done 画「本周完成」，课程卡用 s.done 最后一条
+    显示「已上到」。它只有 4KB 左右（实测五科合计 4285 字节），拿掉的收益
+    远不值得把老界面弄坏。
+
+    done_n 直接取 subject_progress 算出来的 lessons_done，不再从 subjects[].done
+    数一遍：同一次请求里同一个数不该有第二个口径，两边差一条就是「进度对不上」
+    这种要查半天的怪事。
+
+    老调用方要完整 lessons 就传 include_lessons=True（HTTP 上是 /api/base?full=1）。
+    """
     p = proto()
     done = done_ids()
     vowner = vocab_owner(p)
@@ -784,23 +803,32 @@ def bootstrap():
     subjects = []
     for i, s in enumerate(p.get("subjects") or []):
         sp = subject_progress(p, s, done)
-        subjects.append({
+        row = {
             "id": s["id"], "name": s["name"], "kind": s.get("kind"),
             "score": s.get("score", 0), "accent": s.get("accent"),
             "mode": s.get("mode"), "bvid": s.get("bvid"),
             "video_up": s.get("video_up"), "video_pages": s.get("video_pages"),
             "cover": s.get("cover"), "video_title": s.get("video_title"),
             "groups": s.get("groups") or [],
-            "lessons": s.get("lessons") or [],
             "lessons_total": sp["lessons_total"],
             "lessons_done": sp["lessons_done"],
+            # done 一直给：老界面读它（见函数说明），只有 4KB，不值得为这点体积弄坏 /old
             "done": sp["done"],
+            # 逐讲 dur 求和。dur 可能是 None（没核过时长的那几讲），按 0 计，
+            # 不让整次加法炸掉；但也绝不编一个平均时长出来。
+            "dur_total": sum(int(l.get("dur") or 0) for l in (s.get("lessons") or [])),
+            "done_n": sp["lessons_done"],
             "next": sp["next"],
             "pos": sp["pos"],
             "cls": cls_of(s, i),
             # 这一门课有没有要背的词 —— 顶栏那句「背单词」按这个值出没
             "has_vocab": bool(vowner and s["id"] == vowner),
-        })
+        }
+        if include_lessons:
+            # 老形状（?full=1）：lessons 全量照旧。dur_total / done_n 也一起给，
+            # 免得老调用方为了两个数字再自己数一遍。
+            row["lessons"] = s.get("lessons") or []
+        subjects.append(row)
 
     cur = current_group(p)
     words = []

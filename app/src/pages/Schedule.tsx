@@ -16,13 +16,16 @@ type Sub = {
   id: string; name: string; cls: string; score: number; weight: number
   quota_minutes: number; used_minutes: number; lessons_total: number; lessons_done: number
   keep: number; cut: number; keep_hours: number; cut_hours: number; reach: string; reach_chapter: string
+  per_day?: number; pending?: number
 }
 type Week = {
   exam_date: string; days_left: number; minutes_per_day: number; today: string
-  days: Day[]; subjects: Sub[]; total_minutes: number; coverage: number
-  pending_hours: number; keep_hours: number; cut_hours: number
+  days: Day[]; subjects: Sub[]; total_minutes: number; coverage: number | null
+  pending_hours: number; keep_hours: number | null; cut_hours: number | null
   subjects_excluded?: any[]; excluded_count?: number
   set?: boolean; ok?: boolean; reason?: string; note?: string
+  /** quota = 按「每科每天几节」排；不给就是老的总量模型（按分值权重切时间）。 */
+  mode?: string
   cut_sample?: { subject: string; cls: string; id: string; title: string; chapter: string; minutes: number; why: string }[]
   cut_total?: number; vocab_minutes?: number; rule?: string
 }
@@ -63,6 +66,9 @@ export function Schedule({ base, go }: {
   const keep = d?.keep_hours ?? 0
   const cut = d?.cut_hours ?? 0
   const vocab = d?.vocab_minutes ?? 0
+  /* 两种排法：quota（按每科每天几节）和总量（按每天总分钟 × 分值权重）。
+     前者没有覆盖率这个概念 —— 所以那一格不许拿 0% 顶上，那是假数。 */
+  const quotaMode = d?.mode === 'quota'
 
   // 按科目把本周分钟数汇总，喂给底部那条合计条 —— 分母是这一周真的排掉的时间
   const bySub: { name: string; cls: string; minutes: number }[] = []
@@ -93,7 +99,9 @@ export function Schedule({ base, go }: {
         <div>
           <div className="k">距考试</div>
           <div className="v">{d?.days_left ?? '—'}<small>天</small></div>
-          <div className="s">{d?.exam_date ? `${d.exam_date} · 广东专升本` : '考试日期没定 —— 排不出来'}</div>
+          <div className="s">{d?.exam_date ? `${d.exam_date} · 广东专升本`
+            : quotaMode ? '没定考试日期 —— 只按每日配额排，覆盖率算不出来'
+              : '考试日期没定 —— 排不出来'}</div>
         </div>
         <div>
           <div className="k">待学</div>
@@ -102,9 +110,22 @@ export function Schedule({ base, go }: {
         </div>
         <div>
           <div className="k">吃下 / 砍掉</div>
-          <div className="v">{keep ? keep.toFixed(1) : '—'}<small>/ {cut ? cut.toFixed(1) : '—'} 小时</small></div>
-          <div className="m"><i style={{ width: (cov ?? 0) + '%' }} /></div>
-          <div className="s">覆盖率 {cov != null ? cov + '%' : '—'}{cutTotal ? ` · 砍 ${cutTotal} 讲` : ''}</div>
+          {quotaMode ? (
+            <>
+              <div className="v">{subs.length}<small> 科各按节数</small></div>
+              <div className="s">
+                {subs.length
+                  ? subs.map((s) => `${s.name} ${s.per_day ?? 1} 节`).join(' · ')
+                  : '还没说每科上几节'}
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="v">{keep ? keep.toFixed(1) : '—'}<small>/ {cut ? cut.toFixed(1) : '—'} 小时</small></div>
+              <div className="m"><i style={{ width: (cov ?? 0) + '%' }} /></div>
+              <div className="s">覆盖率 {cov != null ? cov + '%' : '—'}{cutTotal ? ` · 砍 ${cutTotal} 讲` : ''}</div>
+            </>
+          )}
         </div>
         <div>
           <div className="k">每天</div>
@@ -129,7 +150,9 @@ export function Schedule({ base, go }: {
 
       {!noBasis && !!days.length ? (
         <>
-          <Sect title="这七天" right={d ? `今天 ${md(d.today)} · 每天 ${per} 分钟` : undefined} />
+          <Sect title="这七天" right={d ? (quotaMode
+            ? (d.today ? `今天 ${md(d.today)} · ` : '') + '每科按节数排'
+            : `今天 ${md(d.today)} · 每天 ${per} 分钟`) : undefined} />
           <div className="wk-mn">
             {days.map((day) => {
               const used = (day.blocks || []).reduce((a, b) => a + (b.minutes || 0), 0)

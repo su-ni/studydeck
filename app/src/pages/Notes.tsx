@@ -45,6 +45,23 @@ function dayOf(ts?: string): string {
   return s.length >= 10 ? s.slice(0, 10) : '日期未记'
 }
 
+/* 「2026-10-30」→「今天 / 昨天 / 10 月 30 日」。
+   分组抬头是给人扫的，一眼要看出「这是多久以前的」——
+   一串 ISO 日期得先在脑子里算一遍才知道是不是昨天。 */
+function dayTitle(iso: string): string {
+  const s = String(iso || '')
+  if (!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(s)) return s || '日期未记'
+  const d = new Date(s + 'T00:00:00')
+  if (isNaN(d.getTime())) return s
+  const today = new Date()
+  const at = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+  const diff = Math.round((at(today) - at(d)) / 86400000)
+  if (diff === 0) return '今天'
+  if (diff === 1) return '昨天'
+  if (diff > 1 && diff < 7) return diff + ' 天前'
+  return (d.getMonth() + 1) + ' 月 ' + d.getDate() + ' 日'
+}
+
 /* 进度点：笔记记在第几分钟。没记时间点就不显示，不写「第 0 秒」。 */
 function posText(sec?: number): string {
   const n = Math.round(Number(sec) || 0)
@@ -101,16 +118,26 @@ export function Notes({ base, sid, scope, go }: {
       {/* 全局模式的筛选行：课程 + 计数。课程内模式不给筛选 ——
           这一页就是「这门课」，再给个课程下拉等于让人在这儿又换一次课，
           而换课只该在顶栏发生一次。 */}
+      {/* 顶部一条：左边「我在看哪一门」，中间数字，右边动作。
+          以前是「下拉 + 一行小字 + 刷新 + 去课堂」四样平铺，字号和长相都差不多，
+          「刷新」和「去课堂记一条」并排还都长得能点 —— 一个次要动作和一个主行动抢位置。
+          现在：筛选用胶囊分段（跟画布库同一套语言），数字单独一截，动作分主次。 */}
       <div className="nts-bar">
         {scope === 'all' ? (
-          <Sel value={pick} onChange={setPick} ariaLabel="按课程筛选笔记"
-            className="nts-sel"
-            options={[{ value: 'all', label: '全部课程' }].concat(
-              subs.map((s: any) => ({
-                value: s.id,
-                label: s.name,
-                note: (bySubject.find((x) => x.id === s.id)?.n ?? 0) + ' 条',
-              })))} />
+          <div className="nts-seg" role="group" aria-label="按课程筛选笔记">
+            <button className={'nts-pick' + (pick === 'all' ? ' on' : '')} onClick={() => setPick('all')}>
+              全部<b>{items.length}</b>
+            </button>
+            {bySubject.map((x) => (
+              <button key={x.id} className={'nts-pick' + (pick === x.id ? ' on' : '')}
+                onClick={() => setPick(x.id)} title={'只看「' + x.name + '」的笔记'}>
+                <span className="dot" aria-hidden="true" style={{ background: clsColor(x.id) }} />
+                {/* 科目名太长（「计算机基础与程序设计」十一个字）会把这一条撑满半屏，
+                    分段控件就失去「一眼扫过」的意义。这里截到 6 个字，全名放 title。 */}
+                {(x.name.length > 6 ? x.name.slice(0, 6) : x.name)}<b>{x.n}</b>
+              </button>
+            ))}
+          </div>
         ) : (
           <span className="nts-ctx">
             <span className="dot" aria-hidden="true"
@@ -118,14 +145,22 @@ export function Notes({ base, sid, scope, go }: {
             {cur?.name || '还没选课'}
           </span>
         )}
-        <span className="nts-n">{sub}</span>
+        {/* 数字这截只在「课程内」模式有用（全局模式的条数已经在分段控件上了，
+            再写一遍就是同一个数出现两次）。 */}
+        {scope === 'course' ? <span className="nts-n">{sub}</span> : null}
         <div className="sp" />
-        <button className="nts-btn" onClick={() => run()}>{loading ? '读取中…' : '刷新'}</button>
-        {items.length ? (
-          <button className="nts-btn on" onClick={() => go('classroom', { sid: want === 'all' ? sid : want })}>
-            去课堂记一条
-          </button>
-        ) : null}
+        {/* 刷新改成图标键：它是一个「再读一次」的补充动作，不该跟主行动同样大。 */}
+        <button className="nts-btn icon" onClick={() => run()} disabled={loading}
+          title={loading ? '正在读…' : '重新读一遍'} aria-label="刷新">
+          <svg width="13" height="13" viewBox="0 0 18 18" fill="none" stroke="currentColor"
+            strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+            style={loading ? { animation: 'spin 1s linear infinite' } : undefined}>
+            <path d="M14.5 9a5.5 5.5 0 1 1-1.6-3.9" /><path d="M14.8 3.4v3.4h-3.4" />
+          </svg>
+        </button>
+        <button className="nts-btn on" onClick={() => go('classroom', { sid: want === 'all' ? sid : want })}>
+          去课堂记一条
+        </button>
       </div>
 
       {err ? (
@@ -155,8 +190,11 @@ export function Notes({ base, sid, scope, go }: {
 
       {groups.map(([key, list]) => (
         <div key={key} className="nts-grp">
+          {/* 分组抬头：课程内模式是章节，全局模式是日期。
+              日期给一个人话写法（今天 / 昨天 / 10 月 30 日）——
+              一屏就这一天时，「2026-10-30」那串数字看着像编号。 */}
           <Sect
-            title={scope === 'course' ? key : key}
+            title={scope === 'course' ? key : dayTitle(key)}
             right={`${list.length} 条`}
           />
           {list.map((n) => {

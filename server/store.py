@@ -1134,6 +1134,54 @@ def save_canvas(map_id, title=None, tree=None, lesson_id=None, src="local",
         con.close()
 
 
+def set_canvas_lessons(map_id, lesson_ids):
+    """只改「这张画布挂在哪几讲」，tree / title / src 一律不碰。
+
+    为什么单开一个函数、不复用 save_canvas：save_canvas 是「整张图落盘」，
+    它必须拿到一棵树 —— 调用方手里没有树时只能传空 {}，那会把用户刚画的东西
+    清成一张白纸。改绑定关系跟树没关系，所以这条 SQL 里压根不该出现 tree 列。
+
+    lesson_ids 传 [] 表示**明确解绑全部**（老字段 lesson_id 跟着写 NULL）；
+    「这次不改」是 save_canvas 的 lesson_ids=None 才有的语义，别混进来。
+
+    返回改完的那一行（含 lesson_ids 列表，不含 tree —— 调用方只要绑定关系，
+    整棵树几万字没必要来回搬）；这一行不存在时返回 None，让调用方自己决定
+    「没有这一张」怎么讲，不在这里编一句话。
+    """
+    if not map_id:
+        return None
+    ids, seen = [], set()
+    for x in (lesson_ids or []):
+        s = str(x or "").strip()
+        # 同一讲挂两遍没有意义，还会让「挂了 N 讲」的张数算重 —— 保序去重
+        if not s or s in seen:
+            continue
+        seen.add(s)
+        ids.append(s)
+    # 老字段 lesson_id 留列表第一个：老备份、外部工具、前端部分卡片还在读它。
+    # 解绑时它是 NULL，不是空串 —— 空串会被 list_canvas 的 lesson_id=? 判等搜到。
+    primary = ids[0] if ids else None
+    con = connect()
+    try:
+        cur = con.execute(
+            "UPDATE canvas_maps SET lesson_id=?, lesson_ids=?, updated_ts=?"
+            " WHERE id=?", (primary, json.dumps(ids, ensure_ascii=False), now(),
+                            map_id))
+        if not cur.rowcount:
+            # 查得到、更新不到 = 这一行刚被别人删了。不 commit 一个改不动的空事务。
+            con.rollback()
+            return None
+        con.commit()
+        r = con.execute(
+            "SELECT id,lesson_id,lesson_ids,title,src,src_id,updated_ts"
+            " FROM canvas_maps WHERE id=?", (map_id,)).fetchone()
+        d = dict(r)
+        d["lesson_ids"] = _lesson_ids_of(d)
+        return d
+    finally:
+        con.close()
+
+
 def get_canvas(map_id):
     if not map_id:
         return None
@@ -1147,6 +1195,11 @@ def get_canvas(map_id):
             d["tree"] = json.loads(d.get("tree") or "{}")
         except ValueError:
             d["tree"] = {}
+        # lesson_ids 跟 list_canvas / save_canvas 保持同一口径：库里存的是 JSON
+        # 字符串，这里必须还原成 list。原来漏了这一步，于是「按 id 打开一张画布」
+        # 拿到的是一串字符，前端取 [0] 得到的是 '[' —— 绑定关系看着像坏了，
+        # 其实只是读的两条路各说各话。
+        d["lesson_ids"] = _lesson_ids_of(d)
         return d
     finally:
         con.close()
@@ -1221,12 +1274,13 @@ def rename_shot(shot_id, title):
         con.close()
 
 
-def tag_shot(shot_id, tags):
-    """写标签。传进来的是**完整**的标签数组（前端负责加减），
-    不是增量 —— 这样两个人同时改也不会互相插一条进去。
-    去重、去空、单条最长 20 字，最多 12 个，防止把标签当备注写。"""
-    if not shot_id:
-        return None
+def clean_tags(tags):
+    """标签清洗的**唯一**一份：去空、截到 20 字、大小写不敏感去重、最多 12 个。
+
+    单条和批量两个入口共用它。为什么要抽出来：清洗规则一旦分成两份，
+    单条改的时候批量那份不会跟着改 —— 同一批标签从两条路写进库里长得不一样，
+    这种不一致没人能在界面上看出来，只会某天突然发现「标签筛选漏了几张」。
+    """
     clean, seen = [], set()
     for t in (tags or []):
         t = str(t).strip()[:20]
@@ -1239,11 +1293,13 @@ def tag_shot(shot_id, tags):
         clean.append(t)
         if len(clean) >= 12:
             break
+    return clean
+
+
+def _shot_row(shot_id):
+    """按 id 取一行并补上前端直接用的 url / tags。取不到回 None。"""
     con = connect()
     try:
-        con.execute("UPDATE shots SET tags=? WHERE id=?",
-                    (json.dumps(clean, ensure_ascii=False) if clean else None, shot_id))
-        con.commit()
         r = con.execute("SELECT * FROM shots WHERE id=?", (shot_id,)).fetchone()
         if not r:
             return None
@@ -1255,6 +1311,24 @@ def tag_shot(shot_id, tags):
         con.close()
 
 
+def tag_shot(shot_id, tags):
+    """写标签。传进来的是**完整**的标签数组（前端负责加减），
+    不是增量 —— 这样两个人同时改也不会互相插一条进去。
+    清洗规则见 clean_tags（批量那条路共用同一份）。"""
+    if not shot_id:
+        return None
+    clean = clean_tags(tags)
+    con = connect()
+    try:
+        con.execute("UPDATE shots SET tags=? WHERE id=?",
+                    (json.dumps(clean, ensure_ascii=False) if clean else None, shot_id))
+        con.commit()
+    finally:
+        con.close()
+    # 回读走同一个函数，跟批量那条路保持一模一样的返回形状
+    return _shot_row(shot_id)
+
+
 def all_shot_tags(subject=None):
     """这个库里出现过的所有标签 + 各占几张。前端做标签筛选要它。"""
     rows = list_shots(subject=subject, limit=100000)
@@ -1264,6 +1338,18 @@ def all_shot_tags(subject=None):
             cnt[t] = cnt.get(t, 0) + 1
     return sorted([{"tag": k, "n": v} for k, v in cnt.items()],
                   key=lambda x: (-x["n"], x["tag"]))
+
+
+def all_shot_lessons(subject=None):
+    """有截图的讲次 + 各几张。截图库要按讲次筛，不然 200 张混在一屏。"""
+    rows = list_shots(subject=subject, limit=100000)
+    cnt = {}
+    for r in rows:
+        lid = r.get("lesson_id")
+        if not lid:
+            continue
+        cnt[lid] = cnt.get(lid, 0) + 1
+    return sorted([{"lesson_id": k, "n": v} for k, v in cnt.items()], key=lambda x: -x["n"])
 
 
 def get_shot(shot_id):
@@ -1345,6 +1431,91 @@ def del_shot(shot_id):
         return cur.rowcount
     finally:
         con.close()
+
+
+def shots_existing(ids):
+    """这批 id 里库里真有的那些（一条 IN 查询）。
+
+    批量删/批量改之前先问一次：只有知道「哪些本来就不在」，回执才能把
+    missing 如实报出来。删完再猜是猜不准的 —— 删掉的和本来就没有的会混成一堆。
+    """
+    want = [str(x) for x in (ids or []) if str(x or "").strip()]
+    if not want:
+        return set()
+    con = connect()
+    try:
+        rows = con.execute("SELECT id FROM shots WHERE id IN (%s)"
+                           % ",".join("?" * len(want)), want).fetchall()
+        return {r["id"] for r in rows}
+    finally:
+        con.close()
+
+
+def del_shots(ids):
+    """一次删多条，口径跟 del_shot 一样：只删账，不动盘上的图。
+
+    一条 SQL 一条事务（不是 n 次 del_shot）：中间断掉的话要么全删要么全没删，
+    不会留下「删了 3 条、第 4 条的时候库被锁住」这种谁也说不清的半截状态。
+    返回的是**真的删掉了几行**（cursor.rowcount），不是「我传进来几个 id」。
+    """
+    want = [str(x) for x in (ids or []) if str(x or "").strip()]
+    if not want:
+        return 0
+    con = connect()
+    try:
+        cur = con.execute("DELETE FROM shots WHERE id IN (%s)" % ",".join("?" * len(want)),
+                          want)
+        con.commit()
+        return max(int(cur.rowcount or 0), 0)
+    finally:
+        con.close()
+
+
+def tag_shots(ids, add=None, remove=None):
+    """批量加 / 减标签，返回 {updated, missing, failed, failed_detail}。
+
+    failed 是**失败条数**（int），failed_detail 才是原因列表 —— 分开是因为
+    前端拿到回执要先回答「成了几条」这个数字；把数组直接丢给它，
+    Number([...]) 会变成 NaN，界面上就会显示「NaN 条没改成」。
+
+    为什么逐条 UPDATE 而不是一条 SQL：加/减要基于**每条自己的**现有标签算结果，
+    SQL 里没有现成的数组差集（本机 sqlite 不一定编了 json1）。逐条走同一条
+    tag_shot 的清洗与写入口，才不会出现「批量加进去的标签比单条加的脏」。
+    事务是整批一个：要么全落地，要么一条都不落 —— 半批落地比全失败更难解释。
+    """
+    want = [str(x) for x in (ids or []) if str(x or "").strip()]
+    add_c, rem_c = clean_tags(add), clean_tags(remove)
+    out = {"updated": 0, "missing": [], "failed": 0, "failed_detail": [],
+           "removed": len(rem_c)}
+    if not want:
+        return out
+    con = connect()
+    try:
+        rows = {r["id"]: dict(r) for r in con.execute(
+            "SELECT * FROM shots WHERE id IN (%s)" % ",".join("?" * len(want)), want
+        ).fetchall()}
+        out["missing"] = [i for i in want if i not in rows]
+        rem_keys = {t.lower() for t in rem_c}
+        try:
+            for sid in want:
+                if sid not in rows:
+                    continue
+                old = _tags_of(rows[sid].get("tags"))
+                kept = [t for t in old if t.lower() not in rem_keys]
+                merged = clean_tags(kept + add_c)
+                con.execute("UPDATE shots SET tags=? WHERE id=?",
+                            (json.dumps(merged, ensure_ascii=False) if merged else None, sid))
+                out["updated"] += 1
+            con.commit()
+        except sqlite3.Error as e:
+            con.rollback()
+            out["updated"] = 0
+            out["failed"] = len(rows)
+            out["failed_detail"] = [
+                {"why": "写标签失败，整批 %d 条已全部回滚：%s" % (len(rows), e)}]
+    finally:
+        con.close()
+    return out
 
 
 def list_canvas(lesson_id=None, src=None, limit=100):
