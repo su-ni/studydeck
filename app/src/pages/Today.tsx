@@ -42,7 +42,7 @@ function Cards({ go }: { go: Go }) {
   return (
     <>
       <div className="kpi-mn">
-        {/* 四格里三格点了能直接去干活：数字看完了要有个下一步<｜hy_place▁holder▁no▁813｜>
+        {/* 四格里三格点了能直接去干活：数字看完了要有个下一步。
             目的地必须是真存在的页，凑不出来的（没有对应页的）保持普通格子。 */}
         <Kpi to="stats">
           <div className="k">今天真的投入</div>
@@ -127,7 +127,6 @@ function Cards({ go }: { go: Go }) {
       <div className="note-mn">
         题库 {d?.bank?.name || '—'} 共 <b style={{ color: 'var(--tx2)' }}>{d?.bank?.total ?? 0}</b> 题，
         已答 <b style={{ color: 'var(--tx2)' }}>{d?.answers?.answered ?? 0}</b> 题。
-        这些数字全来自本机 SQLite 与数据文件 —— 视频播放器还没接计时，所以「今天投入」只记真看过的秒数，不拿视频长度凑。
       </div>
     </>
   )

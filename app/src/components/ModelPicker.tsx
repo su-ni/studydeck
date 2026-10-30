@@ -76,7 +76,9 @@ export function ModelPicker() {
 
   const cur = (p?.providers || []).find((x) => x.provider === p?.current)
   const usable = !!(cur && cur.usable)
-  const label = !p ? '读模型…' : !cur ? '没接模型' : usable ? (p?.model || '未选模型') : '模型不可用'
+  /* 标签给人看的是「哪一家在说话」，不是模型代号 —— WorkBuddy 回的是 hy3 这种别名，
+     对用户没有任何信息量。具体模型放在 title 里。 */
+  const label = !p ? '读模型…' : !cur ? '没接模型' : usable ? (cur.name || p?.model || '未选模型') : '模型不可用'
 
   // 搜索时跨平台一起筛，只保留命中的组
   const view = useMemo(() => {
@@ -108,7 +110,7 @@ export function ModelPicker() {
   return (
     <div className="mp" ref={box}>
       <button className={'mp-btn' + (usable ? '' : ' off')} onClick={() => setOpen((v) => !v)}
-        title={usable ? `${cur?.name || ''} · ${label} —— 点一下换模型` : (cur?.why || '这家没登录，模型用不了')}
+        title={usable ? `${cur?.name || ''}${p?.model ? ' · ' + p.model : ''} —— 点一下换模型` : (cur?.why || '这家没登录，模型用不了')}
         disabled={!p}>
         <span className="mp-dot" />
         <span className="mp-name">{label}</span>

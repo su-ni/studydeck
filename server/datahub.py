@@ -756,10 +756,30 @@ def wordmap_groups(proto_data):
     return groups
 
 
+def vocab_owner(proto_data=None):
+    """词表属于哪门课。
+
+    背单词不是每门课都有的事 —— 英语要背 3790 个词，高数不用背单词（它背的是公式，
+    不是词表）。所以「背单词」这个入口要按科目出没，得有个真数据可依。
+
+    判定顺序：
+      1. proto.vocab.subject 显式写了归属，就用它；
+      2. 没写但确实有词，归给 english（本机三本词书全是英语的）；
+      3. 一个词都没有，返回 None —— 谁都不显示这一项。
+    """
+    p = proto_data if proto_data is not None else proto()
+    vb = p.get("vocab") or {}
+    has_words = bool(vb.get("groups_words") or vb.get("lists") or vb.get("sample"))
+    if not has_words:
+        return None
+    return vb.get("subject") or "english"
+
+
 # ---------------------------------------------------------------- 首屏
 def bootstrap():
     p = proto()
     done = done_ids()
+    vowner = vocab_owner(p)
 
     subjects = []
     for i, s in enumerate(p.get("subjects") or []):
@@ -778,6 +798,8 @@ def bootstrap():
             "next": sp["next"],
             "pos": sp["pos"],
             "cls": cls_of(s, i),
+            # 这一门课有没有要背的词 —— 顶栏那句「背单词」按这个值出没
+            "has_vocab": bool(vowner and s["id"] == vowner),
         })
 
     cur = current_group(p)
@@ -1518,7 +1540,7 @@ def lesson_words(lesson_id):
     if not key:
         return {"lesson_id": lesson_id, "is_word_lesson": False, "key": None,
                 "count": 0, "words": [],
-                "reason": "本讲不是单词课（wordmap 里没有映射），所以不给词表"}
+                "reason": "这一讲不是单词课，没有配词表"}
     ws = group_words(key)
     return {"lesson_id": lesson_id, "is_word_lesson": True, "key": key,
             "count": len(ws),

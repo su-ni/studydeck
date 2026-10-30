@@ -84,11 +84,14 @@ export function CourseHome({ base, sid, onGo }: {
   const srcAll = srcs.data?.sources || []
   const srcTotal = srcAll.reduce((a, s) => a + (s.total || 0), 0)
 
-  /* 缺什么：只列真能核对的缺口。没有就不编一条凑数。 */
+  /* 缺什么：只列真能核对的缺口。没有就不编一条凑数。
+     「题源/讲次/播放源都在」但进度 1% 的课，之前会显示「没发现缺口」——
+     数据上没错，观感上像在撒谎。刚开头的课把进度本身当作缺口列出来。 */
   const miss: string[] = []
   if (!srcAll.length) miss.push('这一科还没有题源 —— 练习页刷不到它')
   if (noSrc > 0) miss.push(noSrc + ' 讲没有可播的源（既不是 B 站课，也没有本地 mp4）')
   if (total && !done) miss.push('一讲都还没开始')
+  if (total && done && pct < 5) miss.push('才 ' + done + ' / ' + total + ' 讲，还剩 ' + (total - done) + ' 讲')
   if (!total) miss.push('这门课还没有讲次 —— 让助手去 B 站找一门')
 
   /* 章节点进去：先定那一章的第一讲，再进课堂 —— 不让课堂猜。 */
@@ -98,12 +101,70 @@ export function CourseHome({ base, sid, onGo }: {
     onGo('classroom', { sid: realId })
   }
 
+  /* 空库：一门课都没有。
+     这时候千万别装作有课 —— 上面那套「这门课 · 公共课 · 0 讲 · 0%」是在演一个
+     不存在的对象，四个 0 摆在那儿，看着又空又假。换成三步：课怎么进来、
+     日期怎么设、从哪开始。每一步都只说真会发生的事。 */
+  if (!sub) {
+    return (
+      <section className="chome chome-wel">
+        <header className="chome-head">
+          <div className="chome-headmain">
+            <div className="kick">从这里开始</div>
+            <h1>还没有课程</h1>
+            <div className="facts">
+              <div className="d">这门工具不预装任何课 —— 课从你自己的进度来</div>
+            </div>
+          </div>
+        </header>
+        <div className="chome-body">
+          <div className="chome-main">
+            <ol className="wel-steps">
+              <li>
+                <b>1</b>
+                <div>
+                  <h3>导入课程</h3>
+                  <p>粘一个 B 站链接，或者直接说「我想学计算机基础」，它去找整门课，一集一讲地落进本机。</p>
+                </div>
+              </li>
+              <li>
+                <b>2</b>
+                <div>
+                  <h3>设考试日期</h3>
+                  <p>设了才排得出倒计时和这七天该学什么。没设之前，顶栏只会写「未设考试日期」，不会编一个假倒计时。</p>
+                </div>
+              </li>
+              <li>
+                <b>3</b>
+                <div>
+                  <h3>从第一讲开始</h3>
+                  <p>章节、时长、看到第几秒都会自己记住，下次打开接着上次那一讲。</p>
+                </div>
+              </li>
+            </ol>
+            <div className="wel-say">
+              <span className="lb">可以直接照着说</span>
+              <code>帮我导入计算机基础的课，考试在明年 3 月</code>
+            </div>
+            <div className="wel-act">
+              <button className="cbtn" onClick={() => onGo('courses')}>去课程库</button>
+              <button className="cbtn gh" onClick={() => onGo('agent')}>打开设置</button>
+            </div>
+          </div>
+        </div>
+      </section>
+    )
+  }
+
   const nm = sub?.name || '这门课'
+  const scoreSum = subs.reduce((a, s) => a + (s.score || 0), 0)
   const cut = nm.indexOf('与')
   const nmA = cut > 0 ? nm.slice(0, cut) : nm
   const nmB = cut > 0 ? nm.slice(cut) : ''
   const score = sub?.score || 0
 
+  /* 课程封面铺在整页背景上（见 Shell 的 .content.has-cv）——
+     这里只管抬头自己的排版，不再画一层局部渐变：一层在页上就够了。 */
   return (
     <section className="chome">
       <header className="chome-head">
@@ -116,21 +177,6 @@ export function CourseHome({ base, sid, onGo }: {
           <div className="d"><b>{done}</b>讲已学</div><span className="sep" />
           <div className="d"><b>{pct ? (pct < 1 ? pct.toFixed(1) : Math.round(pct)) : 0}</b>%</div>
         </div>
-        </div>
-        {/* 这门课的五个视图（照 style-C-cover.html 的分段胶囊）：
-            课程主页 / 课堂 / 课表 / 背单词 / 练习。
-            它跟左栏目的相同，但它是「从这门课出发」的入口 —— 看完总览直接进下一步，
-            不用把视线挪回左边再找一次。左栏仍是全局导航，两处不互为替代。 */}
-        <div className="chome-tabs" role="tablist" aria-label="这门课的视图">
-          <button role="tab" aria-selected="true" className="on">课程主页</button>
-          <button role="tab" aria-selected="false" onClick={() => onGo('classroom', { sid: realId })}>
-            课堂{curLesson ? <em>本讲</em> : null}
-          </button>
-          <button role="tab" aria-selected="false" onClick={() => onGo('schedule', { sid: realId })}>课表</button>
-          <button role="tab" aria-selected="false" onClick={() => onGo('vocab', { sid: realId })}>背单词</button>
-          <button role="tab" aria-selected="false" onClick={() => onGo('practice', { sid: realId })}>
-            练习{srcTotal ? <em>{srcTotal}</em> : null}
-          </button>
         </div>
       </header>
 
@@ -213,7 +259,12 @@ export function CourseHome({ base, sid, onGo }: {
         <aside className="chome-side">
           <div className="pan">
             <h4>家底</h4>
-            <div className="rw big"><span>分值</span><b>{score ? score + ' / 500' : '不计分'}</b></div>
+            {/* 分母不能写死 —— 以前是 /500，哪天加一门课这个数就变成假的。
+                分母 = 当前导入的、有分值的课加起来的总分（C 语言这类不计分的不算进去）。 */}
+            <div className="rw big"
+              title={scoreSum ? '全部导入的课加起来 ' + scoreSum + ' 分' : undefined}>
+              <span>分值</span><b>{score ? score + ' / ' + scoreSum : '不计分'}</b>
+            </div>
             <div className="rw"><span>讲次</span><b>{total}</b></div>
             <div className="rw"><span>总时长</span><b>{hours ? hours.toFixed(1) + ' 小时' : '—'}</b></div>
             <div className="rw"><span>可播</span><b>{playable} / {total}</b></div>

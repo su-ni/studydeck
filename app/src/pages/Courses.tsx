@@ -39,6 +39,12 @@ function judgeTone(j: string): string {
   return 'im'
 }
 
+/* 题源说明里结尾那段括号是「哪个模型复核的」，属于内部信息，
+   界面上只留「谁出的、复核没复核」这层意思。 */
+function whyOf(w: string): string {
+  return String(w).replace(/[（(][^（）()]*[）)]\s*$/, '').trim()
+}
+
 export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: string }) => void }) {
   const subs: any[] = (base as any).subjects ?? []
   const res: any[] = (base as any).resources ?? []
@@ -129,7 +135,7 @@ export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: str
         </div>
       )}
 
-      <Sect title={`题源 ${srcs.length} 个 · ${srcTotal} 题`} right="判分档不是 exact 的，得模型才判得动" />
+      <Sect title={`题源 ${srcs.length} 个 · ${srcTotal} 题`} />
       {srcs.length ? (
         <div className="srcs-mn">
           {srcs.map((s: any) => (
@@ -141,18 +147,14 @@ export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: str
               <div className="sm">
                 <span>{s.subject_name || s.subject || '—'}</span>
                 <span>{s.total} 题</span>
-                <span>{s.why || '—'}</span>
+                <span>{s.why ? whyOf(s.why) : '—'}</span>
               </div>
             </div>
           ))}
         </div>
       ) : (
-        <div className="empty-mn"><b>本机没有题源</b>题源来自题库文件与 data/sources.json，源头没数据就不摆出入口。</div>
+        <div className="empty-mn"><b>本机没有题源</b>题库文件里没有题，这里就不摆入口。</div>
       )}
-      <div className="note-mn bare" style={{ marginTop: 8 }}>
-        每一行都是 <code style={{ fontFamily: 'var(--mono)', fontSize: 10.5, color: 'var(--tx2)' }}>list_item_sources</code>
-        现场返回的 id / total / judge —— 没有一个是写死的常量。
-      </div>
 
       {!!res.length ? (
         <>
@@ -173,9 +175,7 @@ export function Courses({ base, go }: { base: Base; go: (p: any, o?: { sid?: str
       ) : null}
 
       <div className="note-mn">
-        课程数字读的是本机 <b>workbench/data</b> 与 SQLite 里的真实记录；
-        助手从 B 站新落的课会进 <b>data/courses_extra.json</b>，页面 15 秒自己跟上，不用刷新。
-        封面只认真封面 —— 没有就上科目色渐变，不塞灰色占位块假装有图。
+        五门课、每讲的时长与封面都取自 B 站真实分集；没有封面的课用科目色渐变顶着。
       </div>
     </>
   )

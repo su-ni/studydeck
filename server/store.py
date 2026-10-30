@@ -1070,6 +1070,22 @@ def note_count():
         con.close()
 
 
+def notes_all(limit=300):
+    """所有讲次笔记，新的在前。
+
+    笔记页要「按课看 / 全部看」两种口径，但 store 只认讲次 —— 科目归属由调用方
+    拿 lesson_id 去 proto 里翻。这样以后讲次换课，笔记不用跟着改一遍。
+    """
+    con = connect()
+    try:
+        rows = con.execute(
+            "SELECT lesson_id,text,pos_sec,updated_ts FROM notes"
+            " ORDER BY updated_ts DESC LIMIT ?", (max(1, int(limit or 300)),)).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        con.close()
+
+
 # ---------------------------------------------------------------- 笔记画布（canvas）
 def save_canvas(map_id, title=None, tree=None, lesson_id=None, src="local",
                 src_id=None, lesson_ids=None):

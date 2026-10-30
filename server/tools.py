@@ -18,7 +18,7 @@ import time
 import uuid
 
 from . import (agent, bcz, bili, config, context, datahub, decider, evidence, explain,
-               intake, intent, model_router, notesrc, perm, planner, platform_ai,
+               intake, intent, kb, model_router, notesrc, perm, planner, platform_ai,
                store, websearch, writing, xmind)
 
 REGISTRY = {}
@@ -73,6 +73,8 @@ _WRITE_TOOLS = frozenset([
     "ai_apikey_set", "ai_apikey_clear", "platform_reset", "xmind_disconnect",
     # 拉卷会写 data/papers_extra.json；生题会写 data/gen_questions.json
     "paper_pull", "quiz_gen", "paper_drop", "paper_make",
+    # 建索引会往 study.db 的 kb_item 表写向量（force=True 时先把整表清掉）
+    "kb_build",
 ])
 
 
@@ -1462,6 +1464,12 @@ def t_paper_pull(url=None, text=None, subject=None, subject_name=None,
     papers = [p for p in (ex.get("papers") or []) if p.get("id") != pid]
     papers.append(paper)
     datahub.save_papers_extra({"papers": papers})
+    # 写入即索引：新拉的卷此刻就能被「哪套卷考过…」翻出来。
+    # 索引挂了不影响拉卷本身（卷已经落盘），所以静默跳过。
+    try:
+        kb.index_paper(paper, pid=pid)
+    except Exception:
+        pass
     tick("核对题量", n=3, total=3)
     miss = len(withopts) - len(with_ans)
     return {"ok": True, "paper_id": pid, "name": nm, "subject": sid, "subject_name": sname,
@@ -1488,6 +1496,11 @@ def t_paper_drop(paper_id=None, **_):
         return {"ok": False, "error": "这套卷不是拉进来的（只删 papers_extra 里的）",
                 "say": "没删：自带的那几套卷不归拉取工具管。"}
     datahub.save_papers_extra({"papers": [p for p in papers if p.get("id") != pid]})
+    # 卷删了，索引里那套题也一起走 —— 不然会留下「搜得到、点进去是空的」
+    try:
+        kb.drop_paper(pid)
+    except Exception:
+        pass
     return {"ok": True, "removed": pid, "name": hit.get("name"), "left": len(papers) - 1,
             "say": "删掉了《%s》，还剩 %d 套拉进来的卷。" % (hit.get("name"), len(papers) - 1),
             "effect": "paper %s removed" % pid}
@@ -2208,7 +2221,10 @@ def t_source_drop(source=None, **_):
 # 或者真题里的题干），生成完再让它盲答一遍 —— 跟它自己给的答案对不上的当场丢掉。
 # 这样入库的题才是「有出处 + 自洽」，而不是一段看起来像题的文字。
 # 生成的题单独放 data/gen_questions.json，跟真题分表；界面上按 origin=ai 标出来。
-_GEN_KEEP = 200          # 一个科目最多留多少道生成题，超了从头丢（旧的先走）
+_GEN_KEEP = 0            # 0 = 不限。生成题不淘汰：它带 ref_point（挂考点卡）、带解析、
+                         # 盲答复核过（check=blind-ok），是正式题源，不是一次性产物。
+                         # 以前这里是 200，超了就丢最老的 —— 结果「我保存的题」会在第 201 道
+                         # 时无声消失（2026-10-30 用户明确反对）。想恢复上限就改这个数。
 
 
 def _json_arr_of(text):
@@ -2448,8 +2464,10 @@ def t_quiz_gen(subject=None, topic=None, n=5, lesson_id=None, **_):
             continue
         seen.add(k)
         uniq.append(it)
-    if len(uniq) > _GEN_KEEP:
-        uniq = uniq[-_GEN_KEEP:]      # 超限就丢最老的，保留最新的
+    # 去重之后全都留着（_GEN_KEEP=0 时不砍）。题号只增不复用，所以只会在尾部追加，
+    # 不会洗掉 answers 里已有的作答记录。
+    if _GEN_KEEP and len(uniq) > _GEN_KEEP:
+        uniq = uniq[-_GEN_KEEP:]      # 显式设了上限才丢最老的
     # 刚出的题就是编号大于 start 的那几道（不带答案回给界面：当堂测要就地做，
     # 答案留在库里，判分走 grade_answer —— 跟练习页同一条链路，不另开一套。）
     fresh = [{"no": it["no"], "stem": it["stem"], "opts": it["opts"],
@@ -2462,6 +2480,12 @@ def t_quiz_gen(subject=None, topic=None, n=5, lesson_id=None, **_):
                      why_src, r.get("model") or r.get("provider") or "模型"),
                  "gen_at": store.now(), "items": uniq})
     datahub.save_gen_questions({"sources": srcs})
+    # 写入即索引：刚出的题这一刻就编好，下一句「上次那道类似的」才搜得到。
+    # 索引失败不能拖垮出题本身 —— 题已经落盘了，这里是锦上添花，出错就静默跳过。
+    try:
+        kb.index_gen_source(srcs[-1])
+    except Exception:
+        pass
     miss = len(good) - len(kept)
     return {"ok": True, "source": src_id, "generated": len(arr), "kept": len(kept),
             "dropped": len(bad), "mismatch": len(mismatch), "mismatch_sample": mismatch[:3],
@@ -2663,6 +2687,11 @@ def t_paper_make(subject=None, n=20, name=None, **_):
     papers = [p for p in (ex.get("papers") or []) if p.get("id") != pid]
     papers.append(paper)
     datahub.save_papers_extra({"papers": papers})
+    # 组好的卷同样立刻进索引（真题那部分是 real，AI 补的那部分是新内容）
+    try:
+        kb.index_paper(paper, pid=pid)
+    except Exception:
+        pass
     tick("核对题量", n=3, total=3)
     real_n = sum(1 for g in out_groups for q in g["questions"] if q.get("origin") == "real")
     ai_n = total - real_n
@@ -2697,8 +2726,11 @@ def t_ai_probe(provider=None, **_):
                 "note": "还没登录/没开关，这一枪没打出去。原因照原话给你，不包装。"}
     t0 = _t.time()
     # 注意参数顺序：chat(system, user, provider=...)，不是 chat(provider, system, user)
+    # 预算不能给太小：推理模型（hy3 / kimi-k2-thinking 这类）先把话想一遍再开口，
+    # 40 个 token 会被思考整段吃掉，正文 0 字 —— 探针就会误报「不能说话」。
+    # 实测 hy3 答这一句要 63 字思考，给 600 才稳；普通模型也用不到这么多，浪费可以忽略。
     r = _mr.chat("只回三个字，不要标点。", "用中文回答：可用",
-                 provider=want, max_tokens=40, timeout=45)
+                 provider=want, max_tokens=600, timeout=45)
     ms = int((_t.time() - t0) * 1000)
     body = (r.get("text") or "").strip()
     return {
@@ -3150,7 +3182,8 @@ def t_intent_parse(text=None, **_):
     return intent.plan_from_intent(str(text).strip(), apply=False)
 
 
-@tool("search_all", config.PERM_LOCAL, "搜课程 / 词 / 考点 / 题干（不返回答案）")
+@tool("search_all", config.PERM_LOCAL,
+      "按字面搜课程 / 词 / 考点 / 题干（不返回答案）。命不中字就换 kb_search 按意思找")
 def t_search_all(q=None, limit=8, **_):
     if not q or not str(q).strip():
         return {"q": q, "lessons": [], "words": [], "cards": [], "questions": [],
@@ -3208,7 +3241,9 @@ def t_search_all(q=None, limit=8, **_):
            "questions": questions,
            "say": ("「%s」在本机找到 %d 条：讲次 %d / 词 %d / 考点 %d / 题 %d。" % (
                q, _tot, len(lessons), len(words), len(cards), len(questions)))
-                  if _tot else ("本机数据里没有「%s」。可以换个词，或者让我联网搜。" % q),
+                  if _tot else ("本机字面里没有「%s」。这多半是「词对不上」而不是「库里没有」——"
+                                "换 kb_search 按意思再找一次：它不用对字，"
+                                "「冰箱里没果汁了用哪个词」这种问法也能翻到原题。" % q),
            "effect": "search %d hits" % _tot,
            "total": _tot,
            "note": "结果直接来自本机数据文件；题目只给题干，不给答案"}
@@ -3416,6 +3451,55 @@ def t_save_note(lesson_id=None, text=None, pos_sec=0, **_):
             "say": "笔记存下了（%d 字，挂在 %s 的第 %s 秒）。这一讲现在一共 %d 条笔记。" % (
                 len(text or ""), lesson_id, ("%.0f" % float(pos_sec or 0)), _c),
             "effect": "+1 note (total %d)" % _c}
+
+
+@tool("lesson_notes", config.PERM_LOCAL,
+      "列讲次笔记：给科目就看这门课的，不给就看全部课；带讲次标题、章节、时间")
+def t_lesson_notes(subject=None, limit=300, **_):
+    """笔记页读这个。
+
+    笔记挂在讲次上（一讲一条），而「按课看」是人的口径 —— 所以这里做一次
+    lesson_id → 哪门课 / 哪一章 / 第几讲 的翻译。翻不到的（讲次被删了）不算进来，
+    但会在 dropped 里报出来，不让它静默消失。
+    """
+    p = datahub.proto()
+    idx = {}
+    for s in p.get("subjects") or []:
+        for l in s.get("lessons") or []:
+            idx[str(l.get("id"))] = {
+                "subject": s.get("id"), "subject_name": s.get("name"),
+                "lesson_title": l.get("title"), "chapter": l.get("chapter"),
+            }
+    want = str(subject or "").strip()
+    subj_of = {}
+    for s in p.get("subjects") or []:
+        subj_of[str(s.get("id"))] = {"id": s.get("id"), "name": s.get("name"), "n": 0}
+    items, dropped = [], 0
+    for r in store.notes_all(limit=limit):
+        m = idx.get(str(r.get("lesson_id")))
+        if not m:
+            dropped += 1
+            continue
+        if want and want not in ("all", "*") and str(m.get("subject")) != want:
+            continue
+        if str(m.get("subject")) in subj_of:
+            subj_of[str(m["subject"])]["n"] += 1
+        items.append({
+            "lesson_id": r.get("lesson_id"),
+            "text": r.get("text") or "",
+            "pos_sec": r.get("pos_sec") or 0,
+            "updated_ts": r.get("updated_ts"),
+            "subject": m.get("subject"), "subject_name": m.get("subject_name"),
+            "lesson_title": m.get("lesson_title"), "chapter": m.get("chapter"),
+        })
+    return {
+        "items": items, "total": len(items),
+        "by_subject": [v for v in subj_of.values() if v["n"]],
+        "dropped": dropped,
+        "say": ("这门课有 %d 条笔记" % len(items)) if want and want not in ("all", "*")
+               else ("一共 %d 条笔记，分布在 %d 门课" % (len(items), len([v for v in subj_of.values() if v["n"]]))),
+        "effect": "read notes",
+    }
 
 
 @tool("get_note", config.PERM_LOCAL, "取某个讲次的笔记")
@@ -5172,6 +5256,13 @@ CATS = [
       "list_lesson_words", "lesson_play_time", "stats_overview", "checkin_calendar",
       "recent_tool_calls", "course_add"]),
 
+    # 这一组的触发词是「说不准关键词」的问法：用户知道库里有，但说不出那个词。
+    # 这时候别让他换词，也别直接说没有 —— 按意思翻（kb_search）一次往往就出来了。
+    ("找东西·按意思翻", "用户问「库里有没有…」「哪一讲讲…」「哪道题考…」，但说不准关键词",
+     ["找", "找找", "翻", "搜", "有没有", "哪一讲", "哪一节", "哪道题", "讲过", "考过",
+      "讲过没", "在哪儿", "在哪一讲", "大概是", "类似"],
+     ["kb_search", "kb_stats", "search_all", "list_lessons", "list_lesson_content"]),
+
     ("上课·记播放", "选讲次、上报看到哪、标记看完",
      ["上课", "选讲", "继续听课", "记一下进度", "看到哪了", "看完", "打卡"],
      ["pick_lesson", "log_playback", "mark_lesson_done", "finish_lesson", "sync_xuecheng"]),
@@ -5225,7 +5316,7 @@ CATS = [
      ["笔记", "画布", "导图", "思维导图", "截图", "xmind", "joplin", "整理成图",
       "登录xmind", "连xmind", "xmind登录", "xmind断开"],
      ["note_list", "note_open", "note_save", "note_load", "note_from_md",
-      "save_note", "get_note",
+      "save_note", "get_note", "lesson_notes",
       "xmind_connect", "xmind_disconnect",
       "xmind_list_maps", "xmind_read_map", "note_pull_xmind", "note_push_xmind",
       "shot_list", "shot_save", "shot_tag", "shot_rename", "shot_del", "shot_disk", "shot_gc",
@@ -5618,3 +5709,80 @@ def t_context_status(**_):
 def t_context_compact(on=True, **_):
     """压缩不是让模型自己总结 —— 摘要由本机函数从原话里摘，只丢措辞不丢数字。"""
     return agent.set_compact(bool(on))
+
+
+# ============================================================ 知识索引（语义检索）
+# 为什么要它：库里 3737 条（语法 781 / 考点 1216 / 真题 719 / 讲次 889 / 阅读原文 75 /
+# AI 生成题 57），靠工具名去猜「哪一条」永远猜不全。学生问「进程和线程啥区别」，
+# 那条卡叫「程序与进程」，字面搜不到 —— 不是知识没有，是入口没有。
+# 这套东西的存在意义就一条：让「我记得库里有」变成「一句话就能翻出来」。
+
+
+@tool("kb_search", config.PERM_LOCAL,
+      "按意思找库里的东西：题干、考点、真题原文、讲次、笔记、画布、单词（不用记关键词）")
+def t_kb_search(q=None, subject=None, k=5, kind=None, **_):
+    """按语义检索。不懂关键词也能找。
+
+    subject 尽量给：实测不给科目时「进程和线程」会被 781 条英语语法题淹没，
+    给了科目之后同类问题 9/9 命中。
+
+    kind 可选：语法题 / 考点 / 真题 / 阅读原文 / 讲次 / AI 生成题 / 笔记 / 画布 / 单词。
+    「单词」那 5224 条默认不参与混搜（会把知识问题挤偏），问句里带「单词 / 词汇 /
+    词表」时才会自动放进来，也可以直接 kind="单词" 只搜词。
+    """
+    if not q:
+        return {"ok": False, "error": "要搜什么？给我一句话或者几个词都行"}
+    r = kb.search(q, subject=subject, k=k, kind=kind)
+    if not r.get("ok"):
+        return {"ok": False, "error": r.get("error"), "hits": []}
+    hits = r.get("hits") or []
+    if not hits:
+        return {"ok": True, "hits": [], "weak": True, "note": r.get("note"),
+                "say": r.get("note") or "库里没有跟这句对得上的条目"}
+    top = hits[0]
+    say = "找到 %d 条，最接近的是「%s」（%s · 相似度 %.2f）" % (
+        len(hits), (top.get("title") or "")[:28], top.get("kind") or "条目", top.get("score") or 0)
+    if r.get("weak"):
+        say += "。相似度不高，可能不是你要的，看下面几条再定"
+    return {"ok": True, "q": q, "subject": subject, "scanned": r.get("scanned"),
+            "weak": r.get("weak"), "hits": hits, "say": say}
+
+
+@tool("kb_build", config.PERM_LOCAL,
+      "把库里的东西重index一遍：内容没变的不重编，只补新增和改过的（可反复跑）")
+def t_kb_build(force=False, **_):
+    """建索引。force=True 才清空重建；平时增量，跑一次只编新东西。
+
+    为什么要能反复跑：AI 可能刚生成一批题、网上可能刚拉回一套卷 —— 那些内容
+    落库的那一刻就该能搜到。增量跑一次很便宜（没变的靠 hash 直接跳过）。
+    """
+    if force:
+        n = (kb.stats() or {}).get("total") or 0
+        kb.drop()
+        tick("清掉了旧的 %d 条，重新编" % n)
+    tick("正在摊平语料…")
+    items = kb.collect()
+    tick("收了 %d 条，开始编码" % len(items))
+    st = kb.put_many(items)
+    s = kb.stats()
+    say = ("%d 条语料：新增 %d、更新 %d、没变跳过 %d、编码 %d 条（向量 %.1fMB）"
+           % (len(items), st.get("added", 0), st.get("updated", 0),
+              st.get("skipped", 0), s.get("ready", 0), s.get("vec_mb") or 0))
+    if st.get("dup"):
+        say += "；注意有 %d 条撞了同一个键，被跳过" % st["dup"]
+    return {"ok": True, "collected": len(items), **st, "indexed": s.get("ready"),
+            "say": say, "effect": "kb 索引 %d 条" % (s.get("ready") or 0)}
+
+
+@tool("kb_stats", config.PERM_LOCAL,
+      "索引家底：收了多少条、分几类、占多少空间、模型是哪个、有没有真的能用")
+def t_kb_stats(**_):
+    s = kb.stats()
+    if not s.get("total"):
+        return {"ok": True, **s, "say": "索引还是空的，先跑一次建库（kb_build）"}
+    kinds = "、".join("%s %d" % (k, v) for k, v in (s.get("by_kind") or {}).items())
+    say = ("索引 %d 条（可搜 %d 条，向量 %.1fMB）：%s"
+           % (s.get("total") or 0, s.get("ready") or 0, s.get("vec_mb") or 0, kinds))
+    if not s.get("loaded"):
+        say += "。编码模型这次还没加载，第一次搜会慢几秒"
+    return {"ok": True, **s, "say": say}

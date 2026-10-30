@@ -245,15 +245,21 @@ export function Agent({ base }: { base: Base }) {
             <div className="set-group">正在说话</div>
             {provs.length ? provs.map((p) => {
               const isApi = p.provider === 'apikey'
+              /* 副行只回答两件事：这家现在能不能用、能用到哪天。
+                 账号昵称（沉默的鸟 / 用户8577257195）和配置文件路径（server/config.local.json）
+                 一律不往界面上摆 —— 那是本机的事，不是用户要读的信息。
+                 具体模型名留在 title 里，鼠标停一下能看到。 */
+              const state = p.usable
+                ? (p.expires_text ? '登录态到 ' + String(p.expires_text).slice(0, 10) : '已登录')
+                : (isApi ? (p.configured ? 'Key 已填，没连通' : '还没填 Key')
+                  : (p.configured ? '登录态过期了，续一下' : '还没登录'))
               return (
                 <Row key={p.provider}
-                  title={<>{p.name}{p.selected ? <span className="set-cur">当前</span> : null}</>}
-                  sub={<>
-                    {p.why || (p.configured ? '已配' : '没配')}
-                    {p.account ? '　· ' + p.account : ''}
-                    {p.expires_text ? '　· 到 ' + p.expires_text : ''}
-                    {'　· ' + (p.model || '模型未记录')}
+                  title={<>
+                    {p.name}
+                    {p.selected ? <span className="set-cur">当前</span> : null}
                   </>}
+                  sub={state}
                   tag={p.selected ? '在用' : p.usable ? '可用' : p.configured ? '不可用' : '没配'}
                   tagCls={p.selected ? 'ok' : p.usable ? 'ok' : p.configured ? 'md' : 'im'}
                   act={<>
@@ -264,7 +270,7 @@ export function Agent({ base }: { base: Base }) {
                     ) : null}
                     {/* 切过去只该在「这家现在真能说话」时给 —— 点一个没配的不叫切换，叫掉进坑里。 */}
                     {p.selected || !p.usable ? null : (
-                      <button className="pbtn-mn" onClick={() => useProv(p)}>切换</button>
+                      <button className="pbtn-mn" onClick={() => useProv(p)}>换这家</button>
                     )}
                   </>}
                 />
@@ -276,18 +282,17 @@ export function Agent({ base }: { base: Base }) {
             )}
             {apiProv ? null : (
               <div className="set-note">
-                第一栏「自己的 Key」就是给你自己那条 OpenAI 兼容线路留的：填地址 / 模型 / Key 就行。
+                「自己的 Key」是给你那条 OpenAI 兼容线路留的：填地址 / 模型 / Key 就行。
               </div>
             )}
 
-            <div className="set-group">判断层</div>
-            <Row title="JEV 判断模型"
-              sub="先不接　·　背单词的下一张卡仍按逾期 / 到期 / 答错过 / 高频排序，界面不显示概率"
-              tag="未接" tagCls="im" />
+            <div className="set-group">主观题判分</div>
+            <Row title="作文和填空由谁判"
+              sub="现在用主模型判语言那部分，本机能数的（词数、要点、格式）先算完；不单独接一家判断模型"
+              tag="跟随主模型" tagCls="im" />
 
             <div className="set-foot">
-              现在这套模型接的是 <b>{tools.length}</b> 个工具，其中 <b>{confirm.length}</b> 个要先问一句才动。
-              工具清单在服务端登记，界面不自己列一份。
+              这一套接了 <b>{tools.length}</b> 个工具，其中 <b>{confirm.length}</b> 个会先问一句再动手。
             </div>
           </>
         )}

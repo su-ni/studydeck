@@ -13,7 +13,7 @@ import os
 # --------------------------------------------------------------------------
 SERVER_DIR = os.path.dirname(os.path.abspath(__file__))
 APP_DIR = os.path.dirname(SERVER_DIR)                     # 研学台/
-PROJECT_ROOT = os.path.dirname(APP_DIR)                   # F:\项目\备考专升本
+PROJECT_ROOT = os.path.dirname(APP_DIR)                   # 仓库根目录（研学台/ 的上一级）
 
 WEB_DIR = os.path.join(APP_DIR, "web")
 APP_DATA_DIR = os.path.join(APP_DIR, "data")

@@ -188,36 +188,34 @@ export function Schedule({ base, go }: {
 
           {!!cutSample.length ? (
             <>
-              <Sect title={`砍掉的 ${cutTotal} 讲 · 每条都写清为什么`} right="按分值切额度，额度外的从尾部砍" />
+              <Sect title={`砍掉的 ${cutTotal} 讲`} right="额度外的从尾部砍" />
               <div className="cuts-mn">
                 {cutSample.map((c) => (
                   <div key={c.id} className="cut-mn" style={{ borderLeftColor: colOf(c.cls) }}>
                     <span className="sub" style={{ color: colOf(c.cls) }}>{c.subject}</span>
                     <b>{c.title}</b>
                     <span className="why">{c.why}</span>
-                    <em>{c.minutes} 分钟 · {c.id}</em>
+                    <em>{c.minutes} 分钟</em>
                   </div>
                 ))}
               </div>
               <div className="note-mn bare">
-                这里只列出前 {cutSample.length} 条 —— 砍掉的 {cutTotal} 讲每一条都带这一句 why，
-                由 plan_budget 现算，改天数或每天时长就变。
+                上面只列了前 {cutSample.length} 条，一共砍掉 {cutTotal} 讲。
               </div>
             </>
           ) : (
-            <div className="note-mn">这个时长下没有砍掉任何讲次 —— 全部吃得下，覆盖率 100%。</div>
+            <div className="note-mn">这个时长下没有砍掉任何讲次，全部吃得下。</div>
           )}
         </>
       ) : null}
 
       {!noBasis && !days.length ? (
-        <div className="empty-mn"><b>正在排…</b>七天排程来自 plan_week，取不到就是没排出来。</div>
+        <div className="empty-mn"><b>正在排…</b>七天排程还没出来。</div>
       ) : null}
 
       <div className="note-mn">
-        额度 = 该科分值 ÷ 总分 × 每天分钟数 × 剩余天数，按分值权重切，不按「哪科课多」切。
-        <b>「砍」不是删掉</b>：它仍在课程库里，只是这个时长下吃不完，排在额度之外的讲次会写明为什么。
-        每天时长那格改完按重排，整张表当场重算 —— 数字都能从 plan_budget 一条 curl 打回来。
+        额度按该科分值占总分的比例分，不按「哪科课多」分。
+        砍掉的课仍在课程库里，只是这个时长下吃不完。
       </div>
     </>
   )

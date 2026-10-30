@@ -8,6 +8,7 @@ import { Courses } from './pages/Courses'
 import { Schedule } from './pages/Schedule'
 import { Vocab } from './pages/Vocab'
 import { Practice } from './pages/Practice'
+import { Notes } from './pages/Notes'
 import { Exam } from './pages/Exam'
 import { Stats } from './pages/Stats'
 import { Writing } from './pages/Writing'
@@ -17,7 +18,7 @@ import { Canvas } from './pages/Canvas'
 const KEY = 'sd_page'
 const SID_KEY = 'sd_sid'
 const PAGES: PageKey[] = ['home', 'today', 'classroom', 'courses', 'schedule', 'vocab',
-  'practice', 'exam', 'stats', 'writing', 'agent', 'canvas']
+  'practice', 'notes', 'notesAll', 'exam', 'stats', 'writing', 'agent', 'canvas']
 
 function initPage(): PageKey {
   const h = (location.hash || '').replace('#', '')
@@ -82,9 +83,13 @@ export function App() {
   }, [])
 
   /* 带科目的跳转：点章节 → pick_lesson + 进课堂，课堂要知道是哪门课，
-     否则它按自己的默认科目取断点，跳到别的课上去。 */
-  const go = (p: PageKey, o?: { sid?: string }) => {
+     否则它按自己的默认科目取断点，跳到别的课上去。
+     entry 记的是「从顶栏还是左栏进来的」—— 练习页靠它决定默认范围：
+     顶栏进来跟着当前讲次，左栏进来是整门课。 */
+  const [navEntry, setNavEntry] = useState<'tab' | 'rail'>('rail')
+  const go = (p: PageKey, o?: { sid?: string; entry?: 'tab' | 'rail' }) => {
     if (o?.sid && o.sid !== sid) setSid(o.sid)
+    if (o?.entry) setNavEntry(o.entry)
     setPage(p)
   }
 
@@ -101,7 +106,6 @@ export function App() {
 
   return (
     <Shell page={page} onGo={go} base={base} sid={sid} onSid={(id) => { setSid(id); setPage('home') }}
-      bare={page === 'home'}
       topRight={page === 'canvas' ? canvasTop : undefined}>
       <div key={page} className={"pagein" + (page === 'vocab' || page === 'today' || page === 'canvas' || page === 'home' ? ' pagein-fill' : '')}>
         {page === 'home' && <CourseHome base={base} sid={sid} onGo={go} />}
@@ -110,7 +114,10 @@ export function App() {
         {page === 'courses' && <Courses base={base} go={go} />}
         {page === 'schedule' && <Schedule base={base} go={go} />}
         {page === 'vocab' && <Vocab base={base} />}
-        {page === 'practice' && <Practice base={base} />}
+        {page === 'practice' && <Practice base={base} initSid={sid} entry={navEntry} />}
+        {/* 笔记两个入口：顶栏那个看这一门课（跟课程走），左栏那个看全部课（不跟）。 */}
+        {page === 'notes' && <Notes base={base} sid={sid} scope="course" go={go} />}
+        {page === 'notesAll' && <Notes base={base} sid={sid} scope="all" go={go} />}
         {page === 'exam' && <Exam base={base} />}
         {page === 'stats' && <Stats base={base} />}
         {page === 'writing' && <Writing base={base} />}

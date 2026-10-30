@@ -462,7 +462,7 @@ export function Vocab({ base: _base }: { base: Base }) {
             <div className="vx-card vx-learn vx-fill" key="learn">
               {cur ? (
                 <>
-                  <div className="vx-learn-body" ref={bodyRef}>
+                  <div className={'vx-learn-body' + (revealed ? '' : ' vx-center')} ref={bodyRef}>
                   <div className="vx-bigword" ref={fitEl}>{cur.w}</div>
                   <div className="vx-lw-hd">
                     <button className="vx-lw-spk" onClick={() => speak(wordAudio)} title="播这个词的发音"><Icon n="sound" size={14} /></button>
@@ -496,9 +496,6 @@ export function Vocab({ base: _base }: { base: Base }) {
                     })}
                     {det && !(det.examples || []).length && det.available !== false ? (
                       <div className="vx-note">这个词条没有例句。</div>
-                    ) : null}
-                    {det?.available === false ? (
-                      <div className="vx-note">百词斩词条没取到：{det.reason || det.error || '没这个词条'}</div>
                     ) : null}
                   </div>
 

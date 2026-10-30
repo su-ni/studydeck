@@ -623,7 +623,10 @@ def _sse_stats(text):
                 think.append(d["reasoning_content"])
             if ch.get("finish_reason"):
                 stop = ch["finish_reason"]
-    return "".join(body), len("".join(think)), stop
+    # think 回的是原文，不是字数：_wb_result 要拿它去 _act_in_think 里捞动作，
+    # 传个 int 过去那边一 .strip() 就炸（2026-10-30 实测：hy3 只思考不说话时必抛
+    # "'int' object has no attribute 'strip'"）。字数由调用方自己 len()。
+    return "".join(body), "".join(think), stop
 
 
 _ACT_RE = re.compile(r'\{\s*"action"\s*:.*?\}\s*$', re.S)
@@ -670,7 +673,7 @@ def _wb_result(raw, model, reason):
         return {"ok": False, "text": None, "model": model, "think_only": True,
                 "reason": ("这一轮 %d 个字全花在思考上，正文一个字没吐（停下的原因：%s）。"
                            "思考里也没落下完整动作。"
-                           % (think, stop or "未知"))}
+                           % (len(think), stop or "未知"))}
     return {"ok": False, "text": None, "model": model,
             "reason": "这家回了 200 但正文是空的（停下的原因：%s）。" % (stop or "未知")}
 

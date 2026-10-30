@@ -284,9 +284,6 @@ export function Classroom({ base, goCanvas, initSid }: {
               {[subj?.name, upName(subj?.video_up), les?.chapter].filter(Boolean).join(' · ') || '—'}
             </div>
           </div>
-          <Sel value={sid} ariaLabel="切换科目"
-            onChange={(v) => { setSid(v); setSidTouched(true) }}
-            options={subs.map((s) => ({ value: s.id, label: s.name }))} />
           <span className="tg-mn im" style={{ height: 22, display: 'inline-flex', alignItems: 'center' }}>
             {les?.local ? '本地 MP4 · 可离线' : 'B 站分 P'}
           </span>
@@ -500,8 +497,7 @@ function SidePanel({ lid, subject, lessonTitle, shots, seekTo, goCanvas }: {
           <div style={{ fontSize: 11.5, color: 'var(--tx3)' }}>正在读…</div>
         ) : !has ? (
           <div style={{ fontSize: 11.5, color: 'var(--tx3)', lineHeight: 1.7 }}>
-            这一讲还没有笔记。点下面那枚按钮新建一张，它会挂在这一讲上 ——
-            之后在这一页点卡片就能直接打开。
+            这一讲还没有笔记。
           </div>
         ) : (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 7 }}>
@@ -568,9 +564,6 @@ function SidePanel({ lid, subject, lessonTitle, shots, seekTo, goCanvas }: {
         )}
       </div>
       {msg2 ? <div className="tg-mn ok shotmsg-mn" style={{ alignSelf: 'flex-start' }}>{msg2}</div> : null}
-      <div style={{ fontSize: 10.5, color: 'var(--tx3)', lineHeight: 1.7, padding: '0 2px' }}>
-        截图和画布导出进的是同一个素材库，靠来源标区分。
-      </div>
     </aside>
   )
 }

@@ -445,8 +445,11 @@ def build(source, ref, chosen=None, style=STYLE_STANDARD):
 
     bl = _basis_lines(ev)
     if bl:
+        # 「依据」是库里能逐字核对的原文，跟「题库自带解析」不是一回事：
+        # 很多真题只有答案没有解析，依据是从考点卡/同考点题里找到的旁证。
+        # 这层区别必须写在文案里，否则人会以为上面说「没有解析」和这里有「依据」互相打脸。
         parts.append({"key": "basis", "title": "依据",
-                      "text": "共 %d 条依据，%d 条通过复核。"
+                      "text": "共 %d 条依据，%d 条通过复核。依据是库里能核对的原文（考点卡、题库、讲次），不是现编的解析。"
                               % (len(bl), sum(1 for b in bl if b["verified"])),
                       "lines": bl})
     else:
@@ -454,6 +457,16 @@ def build(source, ref, chosen=None, style=STYLE_STANDARD):
                       "text": ("捞不到依据 —— 原卷只给了答案没给解析。" if source == datahub.SRC_EXAM
                                else "捞不到这道题的依据。"),
                       "lines": []})
+
+    # 背景材料：不作依据，只帮理解。以前 evidence 捞了但这里没输出，等于白捞 ——
+    # 阅读原文那 600 字、同考点参照题，全都没到人眼前。
+    ctx = ev.get("context") or []
+    if ctx:
+        parts.append({"key": "context", "title": "参考",
+                      "text": "下面这些不是这道题的依据，只是帮你理解这类考法。"
+                              "引文对不上原题的时候，宁可不看。",
+                      "lines": [{"text": c.get("text"), "where": c.get("where"),
+                                 "verified": c.get("verified")} for c in ctx]})
 
     if opts:
         absent = [o["opt"] for o in opts if o.get("pos") == "absent"]

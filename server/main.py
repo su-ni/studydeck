@@ -832,7 +832,7 @@ def favicon():
 
 
 def _open_browser(url: str):
-    """服务起来后自动开一次浏览器。开不了就算了，不该因为这事起不来服务。"""
+    """服务起来后开一次浏览器（只有明确要开的时候才开）。开不了就算了，不该因为这事起不来服务。"""
     try:
         import threading, webbrowser
         threading.Timer(1.2, lambda: webbrowser.open(url)).start()
@@ -840,13 +840,36 @@ def _open_browser(url: str):
         pass
 
 
+def _warm_kb():
+    """后台预热语义检索的编码模型。
+
+    不预热的下场：第一次搜要等 8–15 秒加载模型，用户以为「搜索坏了」。
+    预热多占约 100MB 内存，换来第一次搜就是毫秒级 —— 这笔账划算。
+    起在守护线程里、延后几秒，别跟启动抢 IO；预热失败也不影响服务
+    （真用到的时候 kb 会自己再试一次，并把原因说出来）。
+    """
+    try:
+        import time as _t
+        _t.sleep(3)
+        from . import kb
+        r = kb.available()
+        print("语义检索预热：%s" % ("就绪，%d 维" % (r.get("dim") or 0) if r.get("ok")
+                                 else (r.get("why") or "不可用")))
+    except Exception:
+        pass
+
+
 def main():
+    import threading
     import uvicorn
     url = "http://%s:%d/" % (config.HOST, config.PORT)
     print("研学台 → %s" % url)
     print("（老界面还在：%sold）" % url)
-    if os.environ.get("SD_NO_BROWSER") != "1":
+    # 默认不开浏览器：自动化跑测试、起后台服务的时候，突然弹窗会把人从正在干的事上打断。
+    # 要开就明确说 —— start.bat 会设 SD_OPEN_BROWSER=1，双击启动照旧弹。
+    if os.environ.get("SD_OPEN_BROWSER") == "1":
         _open_browser(url)
+    threading.Thread(target=_warm_kb, daemon=True, name="kb-warm").start()
     uvicorn.run(app, host=config.HOST, port=config.PORT, log_level="warning")
 
 

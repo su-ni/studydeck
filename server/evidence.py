@@ -195,6 +195,47 @@ def _card_group(sid, item):
     return out
 
 
+def _similar_basis(stem, subject="english"):
+    """给「原卷没解析」的真题，找一道同考点、带官方解析的题当参照。
+
+    为什么值得做：真题 715 道里，阅读/完形能引原文，但**单选和语法填空**
+    原卷只有答案 —— 以前这类题一律判「讲不了」。而语法库 781 条题 100% 带
+    人工解析，用语义检索捞一道同考点的，至少能让人看懂这一类考法。
+
+    分寸（这条不能松）：返回的是 **context 不是 basis**。它说的是另一道题，
+    拿它当本题依据就是变着法地编。
+
+    阈值怎么定的（实测 24 道无解析真题）：≥0.62 只有 5 道（21%），
+    中位数 0.594，≥0.58 有 15 道（62%）。卡 0.62 等于这功能基本用不上，
+    所以放到 0.58，但 0.58–0.62 之间那档要在文案里说清「只能当同类考法看」。
+    """
+    stem = str(stem or "").strip()
+    if len(stem) < 12:
+        return None
+    try:
+        from . import kb
+        r = kb.search(stem, subject=subject or "english", k=1,
+                      kind="语法题", min_score=0.58, _allow_cross=False)
+        hits = r.get("hits") or []
+        if not hits:
+            return None
+        h = hits[0]
+        txt = h.get("text") or ""
+        i = txt.find("｜解析：")
+        exp = txt[i + 4:] if i >= 0 else ""
+        if len(exp) < 20:
+            return None
+        sc = float(h.get("score") or 0)
+        head = ("同类题：%s" % (h.get("title") or ""))
+        if sc < 0.62:
+            head = "可能同类的题（相似度偏低，只能当同类考法看）：%s" % (h.get("title") or "")
+        return {"text": ("%s\n它的官方解析：%s" % (head, exp[:400])),
+                "where": ("语法题库第 %s 题（相似度 %.2f · 同考点参照，不是本题依据）"
+                          % (h.get("ref"), sc))}
+    except Exception:
+        return None
+
+
 def gather(source, ref, chosen=None):
     """给一道题捞证据。返回结构化 evidence，**不含任何模型产出**。
 
@@ -281,9 +322,21 @@ def gather(source, ref, chosen=None):
                                   "where": "原文（共 %d 字 / %d 句）"
                                            % (len(mat), len(_sentences(mat)))})
         else:
-            # 单选/语法填空：原卷没给解析，本机没有依据
-            ev["gaps"].append("这道题原卷只给了答案，没有解析；"
-                              "本机也没有可引的原文 —— 想讲清它要接模型讲语法规则")
+            # 单选/语法填空：原卷没给解析，本机没有依据。
+            # 但「没有依据」不等于「帮不上」—— 语法题库里有 781 条**带官方解析**的题，
+            # 用语义检索找一道同考点的，把它的解析作为**参照**摆出来。
+            # 关键分寸：这条参照说的是另一道题，所以只能进 context（不作依据），
+            # 不能进 basis —— 拿别的题的解析当本题依据，就是变着法地编。
+            sim = _similar_basis(ev.get("stem"), item.get("subject"))
+            if sim:
+                ev["context"].append(sim)
+                ev["gaps"].append(
+                    "这道题原卷只给了答案，没有解析；本机也没有可引的原文。"
+                    "下面那条是库里同考点的题，它的解析能帮你理解这一类考法，"
+                    "但不是这道题的依据 —— 要对上本题，得接模型讲语法规则。")
+            else:
+                ev["gaps"].append("这道题原卷只给了答案，没有解析；"
+                                  "本机也没有可引的原文 —— 想讲清它要接模型讲语法规则")
         return ev
 
     # ---------- 考点卡：卡内全文就是依据 ----------

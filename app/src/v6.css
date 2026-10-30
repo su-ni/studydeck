@@ -1631,10 +1631,11 @@
   inset: 0;
   z-index: 1;
   background: var(--bg);
-  /* 0.72 是试出来的：B 站封面几乎都是白字黑底的大标题，「专升本计算机（已完结版）」
-     那几个字在 0.62 下还清楚得像卡内标题。0.72 让它退到「隐约有字」，同时底色还在。
-     再高（0.9+）就成一块黑，等于没有封面。 */
-  opacity: .72;
+  /* 0.86 + 3px 背景虚化：B 站封面几乎都是「白字黑底的大标题」，
+     不虚化的话那几个大字会跟卡内标题抢同一行字。虚化之后它只剩颜色和轮廓。 */
+  opacity: .86;
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
 }
 .cc-mn .cv.has-cover::after {
   z-index: 2;
@@ -1818,9 +1819,12 @@
   font-weight: 650;
   line-height: 1.4;
   min-width: 0;
+  /* 卷名（「AI 组卷 · 英语 · 10 题」）比卡宽，nowrap 会被压成「…1…」这种半截字。
+     留两行，宁可高一行也不要给个读不出来的名字。 */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 /* 「网上拉取」的卷要跟自带的 15 套分得清：来源不同，可信度和判分能力都不同 */
 .pc-mn .pw-tag {
@@ -2143,6 +2147,16 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
   font-size: 10.5px; font-weight: 500; color: var(--act);
   border: 1px solid rgba(255, 176, 32, .38);
   border-radius: 4px; padding: 1px 5px;
+}
+/* 模型代号：不在副行里报「DeepSeek-V4-Flash · hy3」这种内部编号，
+   缩成标题右边一枚小字，鼠标停住才给全文。它是注解，不是这一行的主角。 */
+.set-modelcode {
+  margin-left: 9px;
+  font-size: 10.5px;
+  font-weight: 500;
+  color: var(--tx3);
+  letter-spacing: 0;
+  cursor: help;
 }
 .set-foot { margin-top: 28px; font-size: 11.5px; color: var(--tx3); line-height: 1.8; }
 .set-foot b { color: var(--tx2); font-weight: 650; }
@@ -3327,3 +3341,388 @@ select.inp-mn:disabled { opacity: .4; cursor: default; }
   .chome-head { flex-direction: column; }
   .chome-tabs { margin-left: 0; }
 }
+
+/* ===================== 左栏：极窄图标条（docs/style-C-cover.html）=====================
+   56px 常驻，横向空间让给内容。图标 + hover 提示即可 —— 选中项靠左侧 2px 琥珀竖条，
+   不靠背景块堆叠（一屏十一个入口，每块都上色就成了一排色块）。
+   这条同时覆盖旧的 236px 文字导航与画布页的 focus 收起逻辑（现在全站都是收起的）。 */
+.app-mn .rail.rail-icons {
+  width: 56px;
+  flex: none;
+  padding: 14px 0 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  background: var(--bg2);
+  border-right: 1px solid var(--line);
+}
+.rail-icons .lg {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--act);
+  color: #000;
+  font-size: 14px;
+  font-weight: 800;
+  display: grid;
+  place-items: center;
+  margin-bottom: 14px;
+  flex: none;
+}
+.rail-icons .railnav {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+}
+.rail-icons .sp { flex: 1; min-height: 12px; }
+.rail-icons .rb {
+  position: relative;
+  width: 38px;
+  height: 38px;
+  border-radius: 9px;
+  border: 0;
+  background: none;
+  color: var(--tx3);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.rail-icons .rb:hover { background: var(--card); color: var(--tx2); }
+.rail-icons .rb.on { background: var(--card); color: var(--act); }
+.rail-icons .rb.on::before {
+  content: "";
+  position: absolute;
+  left: -9px;
+  top: 9px;
+  bottom: 9px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--act);
+}
+
+/* ===================== 顶栏：当前课程 + 视图胶囊 + 家底 =====================
+   科目只在顶栏这一处切换 —— 左栏没科目，页面里也不许再放科目下拉。
+   「当前课程」是全局状态（localStorage sd_sid），11 页都从它取数。 */
+.top-ctx {
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 22px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.top-ctx .tcur { display: flex; align-items: center; gap: 10px; min-width: 0; flex: none; max-width: 340px; }
+.top-ctx .tcur .cv {
+  width: 40px;
+  height: 24px;
+  border-radius: 5px;
+  flex: none;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, .09);
+}
+.top-ctx .tcur b { font-size: 14px; font-weight: 750; white-space: nowrap; }
+
+/* 课名本身就是下拉触发器：把 .csel 的外壳去掉，只留文字 */
+.top-ctx .tcur-sel.csel {
+  background: none;
+  border: 0;
+  height: auto;
+  padding: 0 18px 0 0;
+  font-size: 14px;
+  font-weight: 750;
+  color: var(--tx);
+  max-width: 280px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--tx3) 50%),
+    linear-gradient(135deg, var(--tx3) 50%, transparent 50%);
+  background-position: calc(100% - 6px) 9px, calc(100% - 1px) 9px;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.top-ctx .tcur-sel.csel:hover { border: 0; color: var(--act2); }
+
+.top-ctx .tvt {
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--card);
+  border-radius: 9px;
+  flex: none;
+}
+.top-ctx .tvt button {
+  height: 27px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  background: none;
+  color: var(--tx3);
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.top-ctx .tvt button:hover { color: var(--tx2); }
+.top-ctx .tvt button.on { background: var(--card3); color: var(--tx); font-weight: 700; }
+
+.top-ctx .trt { margin-left: auto; display: flex; align-items: center; gap: 10px; flex: none; }
+.top-ctx .pill {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: 999px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  font-size: 11.5px;
+  color: var(--tx3);
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.top-ctx .pill b { color: var(--tx); font-weight: 700; }
+
+/* 页面标题从顶栏挪到内容区顶部：顶栏让给「我在哪门课」，
+   标题还是要有 —— 每个页面第一眼得知道自己是什么页。 */
+.pagehead { margin-bottom: 18px; }
+.pagehead .kick { font-size: 10.5px; letter-spacing: .14em; font-weight: 600; color: var(--tx3); text-transform: uppercase; }
+.pagehead h1 { margin-top: 7px; font-size: 26px; font-weight: 800; letter-spacing: -.03em; line-height: 1.15; }
+.pagehead .sub { margin-top: 7px; font-size: 12.5px; color: var(--tx3); line-height: 1.7; }
+
+@media (max-width: 1280px) {
+  .top-ctx .tvt button { padding: 0 9px; font-size: 11.5px; }
+  .top-ctx .trt .pill:first-child { display: none; }
+}
+
+/* 老 .app 是 232px + 1fr 的网格（为 236px 文字侧栏写的）。
+   左栏改成 56px 图标条之后，第一列必须跟着收 —— 否则左边空着 176px 的透明地带，
+   内容看起来无故缩进一大块（实测内容起点从 82px 被推到 258px）。 */
+.app.app-icons { grid-template-columns: 56px minmax(0, 1fr); }
+
+/* ---------- 顶栏：不属于某门课的页（今日/课程库/考场/统计/画布/设置/笔记总览）
+   这些页没有视图胶囊，左段改成一个页名标。
+   以前这里是「有胶囊才渲染」，那些页就空着一块，顶栏看着像没加载完。 */
+.top-ctx .tplain {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--tx2);
+  flex: none;
+}
+.top-ctx .tplain .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+
+/* ---------- 笔记页（课程内 / 全部课，同一套渲染） ---------- */
+.nts-bar { display: flex; align-items: center; gap: 10px; margin: 2px 0 14px; }
+.nts-bar .sp { flex: 1; }
+.nts-sel.csel { width: 168px; }
+.nts-ctx { display: inline-flex; align-items: center; gap: 7px; font-size: 13px; font-weight: 650; color: var(--tx2); }
+.nts-ctx .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.nts-n { font-size: 12px; color: var(--tx3); }
+.nts-btn {
+  height: 30px;
+  padding: 0 12px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--tx2);
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.nts-btn:hover { background: var(--card2); color: var(--tx); }
+.nts-btn.on { border-color: transparent; background: var(--act); color: #000; }
+.nts-btn.on:hover { background: var(--act2); color: #000; }
+.nts-grp { margin-bottom: 2px; }
+.nts-item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 13px 16px;
+  margin-bottom: 10px;
+  color: var(--tx);
+  transition: .15s;
+}
+.nts-item:hover { background: var(--card2); border-color: var(--line2); }
+.nts-item .hd { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.nts-item .hd .dot { width: 6px; height: 6px; border-radius: 50%; flex: none; }
+.nts-item .hd b { font-size: 13.5px; font-weight: 650; }
+.nts-item .hd .pos { font-size: 11.5px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.nts-item .hd .sp { flex: 1; }
+.nts-item .hd .sub { font-size: 11.5px; color: var(--tx3); }
+.nts-item .hd .ts { font-size: 11.5px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+.nts-item .tx { font-size: 13px; line-height: 1.65; color: var(--tx2); white-space: pre-wrap; }
+
+/* ---------- 练习页「范围」条：本讲 / 整门课 / 全部课程 ----------
+   放在所有筛选之上 —— 先决定练多大一块，再决定从哪个题源取。 */
+.rng-mn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 12px;
+  flex-wrap: wrap;
+}
+.rng-mn .lb { font-size: 12px; color: var(--tx3); flex: none; }
+.rng-mn .sp { flex: 1; }
+.rng-mn .seg {
+  display: inline-flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.rng-mn .seg button {
+  height: 26px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--tx3);
+  font-size: 12.5px;
+  font-weight: 650;
+  cursor: pointer;
+  transition: .15s;
+}
+.rng-mn .seg button:hover { color: var(--tx2); }
+.rng-mn .seg button.on { background: var(--card3); color: var(--tx); }
+.rng-mn .seg button:disabled { color: var(--tx3); opacity: .45; cursor: not-allowed; }
+/* 讲次标题可能很长（B 站分集名有时是一整句），限宽省略，别把范围条顶开 */
+.rng-mn .rng-now {
+  font-size: 12.5px;
+  color: var(--tx2);
+  max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.rng-mn .rng-n { font-size: 12px; color: var(--tx3); font-variant-numeric: tabular-nums; }
+
+/* ---------- 空库引导（一门课都没有时的课程主页） ----------
+   不摆假数字、不放假卡片：三步说清「课怎么进来、日期怎么设、从哪开始」。 */
+.chome-wel .wel-steps { list-style: none; margin: 0; padding: 0; max-width: 720px; }
+.chome-wel .wel-steps li {
+  display: flex;
+  gap: 14px;
+  padding: 16px 0;
+  border-bottom: 1px solid var(--line);
+}
+.chome-wel .wel-steps li:last-child { border-bottom: 0; }
+.chome-wel .wel-steps li > b {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--card3);
+  color: var(--tx2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12.5px;
+  font-weight: 700;
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.chome-wel .wel-steps h3 { margin: 0 0 4px; font-size: 15px; font-weight: 650; color: var(--tx); }
+.chome-wel .wel-steps p { margin: 0; font-size: 13px; line-height: 1.65; color: var(--tx2); }
+.chome-wel .wel-say { margin-top: 20px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.chome-wel .wel-say .lb { font-size: 12px; color: var(--tx3); }
+.chome-wel .wel-say code {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 13px;
+  color: var(--tx2);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 9px 12px;
+}
+.chome-wel .wel-act { margin-top: 18px; display: flex; gap: 10px; }
+
+/* 空库引导：把两列收成一列 —— 没有右栏内容的时候，右栏那 288px 就是一条纯黑，
+   整页看着「左半边有字、右半边什么都没有」。引导态就该自己占满。 */
+.chome-wel .chome-body { display: block; }
+.chome-wel .chome-main { max-width: 880px; }
+.chome-wel .wel-steps li { padding: 18px 0; }
+
+/* 笔记页空态：左对齐 + 一个真动作。不做居中一大坨。 */
+.nts-empty {
+  display: flex;
+  align-items: center;
+  gap: 28px;
+  border: 1px dashed var(--line2);
+  border-radius: 14px;
+  padding: 24px 26px;
+}
+.nts-empty .tx { flex: 1; min-width: 0; }
+.nts-empty .act { flex: none; }
+.nts-empty b { display: block; font-size: 15px; font-weight: 650; color: var(--tx); margin-bottom: 6px; }
+.nts-empty p { margin: 0; font-size: 13px; line-height: 1.7; color: var(--tx2); }
+.rng-mn .rng-go {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 7px;
+  border: 1px solid var(--line2);
+  background: transparent;
+  color: var(--tx2);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.rng-mn .rng-go:hover { background: var(--card2); color: var(--tx); }
+
+/* ---------- 课程主页：整屏的封面环境色 ----------
+   上一版把封面铺在 .content 的背景上（background-attachment: fixed），
+   结果是封面上「专升本语法」几个印刷体大字跟着满屏跑，右栏数字直接读不清 ——
+   那是海报，不是底色。现在换成一层独立的虚化层：blur 46px 之后只剩冷暖，
+   大字号全糊掉，再压一层上下深、中间透的渐变压住正文。
+   挂在不滚动的 .main 上：正文滚，底色不动。 */
+.app-mn .main { position: relative; }
+.app-mn .shell-cv {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.app-mn .shell-cv > i {
+  position: absolute;
+  inset: -12%;
+  background-size: cover;
+  background-position: center 30%;
+  filter: blur(46px) saturate(1.08) brightness(.46);
+  transform: scale(1.06);
+}
+.app-mn .shell-cv::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    /* 贴左栏那条边压一道，免得黑边和白底之间出现一条直线 */
+    linear-gradient(90deg, rgba(0, 0, 0, .88) 0px, rgba(0, 0, 0, .34) 64px, rgba(0, 0, 0, 0) 150px),
+    /* 横向：左浓（课名、章节表都在这侧）→ 中间透 → 右边缘再压一档（家底那栏要读得清） */
+    linear-gradient(97deg, rgba(0, 0, 0, .72) 0%, rgba(0, 0, 0, .34) 48%, rgba(0, 0, 0, .20) 74%, rgba(0, 0, 0, .50) 100%),
+    /* 纵向：顶部跟顶栏接住 → 中段放亮 → 下半段收回黑 */
+    linear-gradient(180deg, rgba(0, 0, 0, .52) 0%, rgba(0, 0, 0, .12) 24%,
+                            rgba(0, 0, 0, .40) 62%, rgba(0, 0, 0, .84) 88%, #000 100%);
+}
+/* 顶栏和正文都在底色之上，顶栏自己不填底色（.top 本来就没有 background），
+   于是整块屏幕是一张连续的渐变，只留左栏那条 56px 的黑边。 */
+.app-mn .main > .top,
+.app-mn .main > .content { position: relative; z-index: 1; }
+
+.chome-head { position: relative; }
+.chome-head .chome-headmain { position: relative; }
+
+/* ---------- 背单词 · 认词态：内容撑不满一屏时居中 ----------
+   一张卡只有「词 + 音标 + 两条例句」时，底对齐会留出半屏空洞；
+   垂直居中之后它就是一张卡片，而不是一屏没写完的表格。 */
+.vx-learn-body.vx-center { justify-content: center; padding-bottom: 0; }

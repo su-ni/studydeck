@@ -243,7 +243,7 @@ export function Exam({ base }: { base: Base }) {
 
         {!!sessions.length ? (
           <>
-            <Sect title={`交过的 ${sessions.length} 次`} right="分项来自本机判分，不是估的" />
+            <Sect title={`交过的 ${sessions.length} 次`} right="按题型分项" />
             <div className="twocol-mn half">
               {sessions.slice(0, 4).map((s) => {
                 const p = papers.find((x) => x.id === s.paper_id)
@@ -274,9 +274,9 @@ export function Exam({ base }: { base: Base }) {
               })}
             </div>
             <div className="note-mn">
-              这里是真的交卷记录 —— 每次交卷一行，来自本机 exam_sessions 表。
-              {sessions.length > 4 ? ` 一共 ${sessions.length} 次，这里列出最近 4 次。` : ''}
-              没做的题型这栏不替你圆场，如实写「未交」；自己写词的填空本机判不了分，标「不判分」，不进总分。
+              每次交卷一行，只算交过卷的那几次。
+              {sessions.length > 4 ? ` 一共 ${sessions.length} 次，这里列最近 4 次。` : ''}
+              自己写的填空本机判不了分，标「不判分」，不进总分。
             </div>
           </>
         ) : (

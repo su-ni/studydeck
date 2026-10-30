@@ -209,14 +209,14 @@ export function Writing({ base }: { base: Base }) {
                     ? (show.errors).map((a: string, i: number) => (
                       <div key={i} className="li-mn wide"><span className="lb">{a}</span></div>
                     ))
-                    : <div className="note-mn bare">这次没挑出错 —— 不代表没有，是本机的规则没命中。</div>}
+                    : <div className="note-mn bare">这次没挑出错。</div>}
                 </Card>
                 <Card title="建议" note={`${(show?.advice || []).length} 条`}>
                   {(show?.advice || []).length
                     ? (show.advice).map((a: string, i: number) => (
                       <div key={i} className="li-mn wide"><span className="lb">{a}</span></div>
                     ))
-                    : <div className="note-mn bare">模型没给建议。</div>}
+                    : <div className="note-mn bare">这次没给建议。</div>}
                 </Card>
               </div>
             </>
@@ -231,10 +231,6 @@ export function Writing({ base }: { base: Base }) {
             </>
           ) : null}
 
-          <div className="note-mn">
-            批改分两层：<b>本机能数的</b>（词数、要点关键词、格式）永远先算，<b>语言与文采</b>才交给模型。
-            模型没接上时，本机部分照样给，模型那部分如实写「没判」—— 不拿 0 分冒充。
-          </div>
         </>
       )}
     </>

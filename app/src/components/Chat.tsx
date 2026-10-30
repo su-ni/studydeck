@@ -397,8 +397,19 @@ function UiBlock({ ui, tool, ok, ms }: {
 /* 一条工具调用：状态点 + 名字 + 参数 + 耗时，点开看返回。
    它跟这句话是同一个整体，所以不当「附件」缩进，而是当成这段过程的一行。
    搜索结果单独走一条路：直接摊成卡片，不用点开。 */
+/* 工具在界面上不该以 `plan_today` 这种名字出现 —— 那是代码里的叫法。
+   常用工具给一句人话，没登记的退回原名（宁可露名，也不编一个假名字）。 */
+const TOOL_CN: Record<string, string> = {
+  plan_today: '排今天的任务', stats_overview: '读进度', list_subjects: '读课程',
+  list_item_sources: '读题源', lesson_quiz: '取这一讲的题', make_quiz: '出题',
+  get_current_lesson: '看学到哪了', bili_search: '搜 B 站课程', intake_pick: '核对课程',
+  course_add: '入库课程', course_add_many: '批量入库', vocab_library: '读词书',
+  vocab_pull: '拉词书', grade_answer: '判分', lesson_notes: '读笔记',
+  explain_coverage: '算可讲率', explain_stats: '读讲题记录', checkin_calendar: '读打卡',
+}
+
 function ToolLine({ x }: { x: Trace }) {
-  const [open, setOpen] = useState(true)
+  const [open, setOpen] = useState(false)
   const data = useMemo(() => {
     if (x.ui) return x.ui
     try {
@@ -421,7 +432,7 @@ function ToolLine({ x }: { x: Trace }) {
     <div className={'cln' + (x.ok ? '' : ' bad')}>
       <button className="cln-hd" onClick={() => setOpen(!open)}>
         <span className="cln-dot" data-ok={x.ok ? '1' : '0'} />
-        <b>{x.tool}</b>
+        <b>{TOOL_CN[x.tool] || x.tool}</b>
         <em>{argLine(x.args)}</em>
         <span className="cln-ms">{x.ms != null ? x.ms + 'ms' : ''}</span>
         <span className="cln-cv">{open ? '收起' : '返回'}</span>
@@ -1610,19 +1621,15 @@ export function Chat({
                 {m.text ? (
                   <div className="cbub" dangerouslySetInnerHTML={{ __html: md(m.text) }} />
                 ) : null}
-                {(m.meta && (m.meta.provider || m.meta.rounds)) || m.turn ? (
+                {m.turn ? (
                   <div className="cmeta">
-                    {m.meta ? (m.meta.provider || '') + (m.meta.model ? ' · ' + m.meta.model : '') : ''}
-                    {m.meta && m.meta.rounds ? ' · ' + m.meta.rounds + ' 轮' : ''}
-                    {m.turn ? (
-                      <button
-                        className="cmeta-act"
-                        onClick={() => forkAt(m.turn as number)}
-                        title="复制到这一轮为止，新开一条接着聊；原来这条不动"
-                      >
-                        从这儿分叉
-                      </button>
-                    ) : null}
+                    <button
+                      className="cmeta-act"
+                      onClick={() => forkAt(m.turn as number)}
+                      title="复制到这一轮为止，新开一条接着聊；原来这条不动"
+                    >
+                      从这儿分叉
+                    </button>
                   </div>
                 ) : null}
                 {m.card ? <ActionCard c={m.card} /> : null}

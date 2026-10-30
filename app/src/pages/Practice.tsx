@@ -57,7 +57,7 @@ const SUB_COLOR: Record<string, string> = new Proxy({} as Record<string, string>
 })
 
 // 四段固定顺序 —— 服务端按 key 给，这里只负责按序摆出来，不重排不改名。
-const PART_ORDER = ['locate', 'basis', 'evidence', 'judge', 'fix']
+const PART_ORDER = ['locate', 'basis', 'context', 'evidence', 'judge', 'fix']
 
 /* 一张纸装几题：按窗口高低算，装得下就往下排，不是写死 5。
    reserve 是纸外面还占着的高度（外壳 56 + KPI 之外的 chip 行 + 纸头 + 内边距）。 */
@@ -71,7 +71,15 @@ function cols(): number {
   return window.innerWidth >= 1180 ? 2 : 1
 }
 
-export function Practice({ base }: { base: Base }) {
+export function Practice({ base, initSid, entry }: {
+  base: Base
+  /* 两条进来的路，默认落点不一样：
+       · 顶栏「练习」= 这门课当前这一讲的练习（上到哪讲到哪讲）
+       · 左栏「练习」= 我要刷题，默认这门课整本
+     initSid 是全局当前课程 —— 练习页不许自己另存一个科目。 */
+  initSid?: string
+  entry?: 'tab' | 'rail'
+}) {
   /* 题源列表自己拉一份：AI 刚生成的题要立刻出现在这一行，
      靠 bootstrap 那份快照就得刷新页面才看得见（那是用户骂过的「刷新才出现」）。 */
   const ls = useTool<{ sources: Src[] }>('list_item_sources', {})
@@ -129,8 +137,15 @@ export function Practice({ base }: { base: Base }) {
   /* 两级切换：先科目、再题源，题型多于一种时再多一排。
      以前是把 8 个题源平铺一行 —— 英语的语法题库和政治的考点卡挨在一起，
      想找某个题源得把整行读完。先选科，候选立刻少一半。 */
-  const [subF, setSubF] = useState('')
+  const [subF, setSubF] = useState(initSid || '')
   const [kindF, setKindF] = useState('')
+  /* 范围三档（真的三档，不摆做不到的档位）：
+       本讲   → 这一讲的当堂测题（lesson_quiz 按 lesson_id 捞，出了就挂在那一讲名下）
+       整门课 → 这门课题源里的题（make_quiz 按题源取，题源带 subject）
+       全部课 → 五门课题源混排（不过滤）
+     「本章」没做：题库的题只带分段，没有章字段，硬做一个只是骗人。 */
+  const [scope, setScope] = useState<'lesson' | 'course' | 'all'>(
+    entry === 'rail' ? 'course' : 'lesson')
   const subList = useMemo(() => {
     const m = new Map<string, { id: string; name: string; n: number }>()
     for (const s of srcs) {
@@ -144,6 +159,11 @@ export function Practice({ base }: { base: Base }) {
   }, [srcs])
   const visible = useMemo(() => srcs.filter(
     (s) => (!subF || s.subject === subF) && (!kindF || s.kind === kindF)), [srcs, subF, kindF])
+  /* 当前这门课根本没有题源时（比如高数），subF 会落在一个不存在的科目上，
+     下拉就显示成「—」—— 一个空的框比「全部」更容易让人以为是坏的。回落到全部。 */
+  useEffect(() => {
+    if (subF && srcs.length && !srcs.some((s) => s.subject === subF)) setSubF('')
+  }, [srcs, subF])
   const kinds = useMemo(() => {
     const pool = subF ? srcs.filter((s) => s.subject === subF) : srcs
     const set: string[] = []
@@ -163,9 +183,28 @@ export function Practice({ base }: { base: Base }) {
     }
   }, [visible, srcId])
 
+  /* 当前这一讲：练习要「跟着进度走」，就得先知道进度停在哪。
+     这个值来自后端真状态（pick_lesson / 播放记录 / 上次断点都算），不是前端猜的。 */
+  const cl = useTool<{ lesson?: { id?: string; title?: string; chapter?: string } }>(
+    'get_current_lesson', initSid ? { subject: initSid } : {})
+  const curLid = cl.data?.lesson?.id
+  const curTitle = cl.data?.lesson?.title
+
+  /* 换范围时把科目筛选一起归位：选「全部课」就该真的不过滤，
+     选「本讲 / 整门课」就该回到当前这门课 —— 否则会出现
+     「范围写着整门课，题全是政治」的错位。 */
+  useEffect(() => {
+    if (scope === 'all') setSubF('')
+    else if (initSid) setSubF(initSid)
+  }, [scope, initSid])
+
   const q = useTool<Quiz>('make_quiz',
     { source: curSrc?.id, part: part || undefined, n: size, offset },
-    { skip: !curSrc })
+    { skip: !curSrc || scope === 'lesson' })
+  /* 本讲模式走另一个题源：这一讲的当堂测。它跟题库不同源 ——
+     题库按分段刷，当堂测按讲次出，题号各算各的，混在一起会互相盖掉。 */
+  const lq = useTool<{ questions?: any[]; total?: number; done?: number; right?: number; source?: string }>(
+    'lesson_quiz', { lesson_id: curLid }, { skip: scope !== 'lesson' || !curLid })
   const err = useTool<{ tags: { tag: string; c: number }[]; total: number }>('error_tag_stats')
   const wrong = useTool<{ errors: any[] }>('list_errors', { limit: 50 })
   const cov = useTool<Cov>('explain_coverage')
@@ -179,12 +218,19 @@ export function Practice({ base }: { base: Base }) {
   const [exBusy, setExBusy] = useState<string | null>(null)
   const [voted, setVoted] = useState<Record<string, 'up' | 'down'>>({})
 
-  const list: Q[] = q.data?.questions ?? []
+  /* 本讲的题：把 lesson_quiz 的字段摊成跟题库一样的 Q，好让下面那套纸卡原样复用。
+     source 必须带上 —— 判分要知道这题归哪个题源；不带就判不了，只能干看。 */
+  const lessonQs: Q[] = useMemo(() => (lq.data?.questions ?? []).map((x: any) => ({
+    no: x.no, part: x.part, topic: x.topic, stem: x.stem, opts: x.opts || {},
+    done: x.done, last_ok: x.last_ok, source: lq.data?.source, ref: String(x.no),
+  })), [lq.data])
+
+  const list: Q[] = scope === 'lesson' ? lessonQs : (q.data?.questions ?? [])
   /* 库里一共多少题、现在看到第几题 —— 这两个数必须来自服务端回的 total/offset，
      不能拿「本组几题」冒充「一共几题」。以前页头只写「本轮 10 题」，
      781 题的库看起来就像只有 10 题，剩下 771 题没人知道去哪刷。 */
-  const parts: { name: string; n: number }[] = q.data?.parts ?? []
-  const total: number = q.data?.total ?? list.length
+  const parts: { name: string; n: number }[] = scope === 'lesson' ? [] : (q.data?.parts ?? [])
+  const total: number = scope === 'lesson' ? lessonQs.length : (q.data?.total ?? list.length)
   const from = list.length ? offset + 1 : 0
   const to = offset + list.length
   const hasPrev = offset > 0
@@ -192,16 +238,20 @@ export function Practice({ base }: { base: Base }) {
   const keyOf = (x: Q) => (x.id || String(x.no))
 
   /* 翻页：只换 offset，本组的作答就地清掉 —— 题都换了，
-     「已完成 3/20」还挂着上一组那 3 个就是假数字。判分早落库了，不会丢。 */
+     「已完成 3/20」还挂着上一组那 3 个就是假数字。判分早落库了，不会丢。
+     落点必须落在组边界上：以前直接 clamp 到 total-1，跳到第 90 题（只有 49 题）
+     会停在 offset=48，屏幕上只剩「第 49–49 题」孤零零一道。 */
+  const maxOff = Math.max(0, Math.floor((total - 1) / size) * size)
   function turn(delta: number) {
-    const o = Math.min(Math.max(0, offset + delta), Math.max(0, total - 1))
+    const o = Math.min(Math.max(0, offset + delta), maxOff)
     if (o === offset) return
     setOffset(o); setJump(''); setPicked({}); setJudged({}); setEx({}); setTagFor(null)
   }
   function doJump() {
     const n = parseInt(jump, 10)
     if (!Number.isFinite(n)) { setJump(''); return }
-    const o = Math.min(Math.max(0, n - 1), Math.max(0, total - 1))
+    const want = Math.min(Math.max(1, n), Math.max(1, total)) - 1
+    const o = Math.min(Math.floor(want / size) * size, maxOff)
     setOffset(o); setJump(''); setPicked({}); setJudged({}); setEx({}); setTagFor(null)
   }
 
@@ -269,6 +319,42 @@ export function Practice({ base }: { base: Base }) {
 
   return (
     <>
+      {/* 范围条：这一页最先要回答的不是「哪个题源」，而是「练哪一块」。
+          从顶栏进来默认「本讲」（跟着你上到的那一讲），从左栏进来默认「整门课」。
+          改成「全部课程」时科目筛选自动清空 —— 两个筛选器不许互相打架。 */}
+      <div className="rng-mn">
+        <span className="lb">范围</span>
+        <div className="seg" role="tablist" aria-label="练习范围">
+          <button role="tab" aria-selected={scope === 'lesson'}
+            className={scope === 'lesson' ? 'on' : ''}
+            disabled={!curLid}
+            title={curLid ? '跟着你上到的那一讲走' : '还没开始学任何一讲，先看整门课'}
+            onClick={() => { setScope('lesson'); reset() }}>本讲</button>
+          <button role="tab" aria-selected={scope === 'course'}
+            className={scope === 'course' ? 'on' : ''}
+            onClick={() => { setScope('course'); reset() }}>整门课</button>
+          <button role="tab" aria-selected={scope === 'all'}
+            className={scope === 'all' ? 'on' : ''}
+            onClick={() => { setScope('all'); reset() }}>全部课程</button>
+        </div>
+        <span className="rng-now">
+          {scope === 'lesson'
+            ? (curLid ? (curTitle || curLid) : '还没开始学任何一讲')
+            : scope === 'course'
+              ? `${(base as any).subjects?.find((s: any) => s.id === initSid)?.name || '这门课'} · 全部题`
+              : '五门课混排'}
+        </span>
+        <span className="sp" />
+        {/* 本讲 0 题时给一条明路：这一讲没出过题，最容易让人以为「练习页坏了」。
+            不自动跳走（那是替用户做决定），但把出口摆在原地。 */}
+        {scope === 'lesson' && !total ? (
+          <button className="rng-go" onClick={() => { setScope('course'); reset() }}>
+            这一讲还没出题，改看整门课 →
+          </button>
+        ) : null}
+        <span className="rng-n">{total} 题</span>
+      </div>
+
       {/* 一个控件行：科目 / 题型 / 题源 / 分段 —— 全是同一种下拉。
           以前这里是「下拉 + chip 墙 + 折叠按钮」三种控件混着摆，
           点「选分段」还会从下面长出十几个 chip，看着像两套界面拼起来的。
@@ -377,7 +463,7 @@ export function Practice({ base }: { base: Base }) {
             </span>
             <span className="rt">
               本组做完 {answeredCount} / {list.length}
-              {answeredCount ? ` · 对 ${rightCount}（${Math.round((rightCount / answeredCount) * 100)}%）` : ' · 判分在服务端'}
+              {answeredCount ? ` · 对 ${rightCount}（${Math.round((rightCount / answeredCount) * 100)}%）` : ''}
             </span>
           </div>
 
@@ -415,7 +501,7 @@ export function Practice({ base }: { base: Base }) {
                           <span className="qn">{x.no}</span>
                           {x.part ? <span className="qp">{x.part}</span> : null}
                           <span className="qk">
-                            {x.explain ? '题库自带解析' : '没存解析'}
+                            {x.explain ? '题库自带解析' : '无逐题解析'}
                             {x.done ? (x.last_ok ? ' · 做对过' : ' · 错过') : ''}
                           </span>
                           {jd ? (
@@ -445,7 +531,14 @@ export function Practice({ base }: { base: Base }) {
                         {/* 判完的解析 + 自己标的错因，就地挂在这道题下面 */}
                         {jd ? (
                           <div className="qfb-mn">
-                            {x.explain ? <div className="tx">{x.explain}</div> : <div className="tx dim">本机没存这题的解析 —— 不编。</div>}
+                            {/* 有逐题解析就显示；没有而且还没讲过，才提示一句。
+                                讲过之后下面就有「依据」段了（依据=库里原文，不是解析），
+                                这里再说「不编」会跟它打架。 */}
+                            {x.explain ? (
+                              <div className="tx">{x.explain}</div>
+                            ) : doc ? null : (
+                              <div className="tx dim">本题没有逐题解析。点「讲这题」，依据从题库和考点卡里现找 —— 找不到就说找不到。</div>
+                            )}
                             {!jd.ok ? (
                               tagFor === k ? (
                                 <div className="tagrow-mn">
@@ -491,7 +584,12 @@ export function Practice({ base }: { base: Base }) {
                                           {l.text}
                                           <div className="from">
                                             {l.where || '—'}{p.from ? '　·　' + p.from : ''}
-                                            {l.verified === false ? '　·　这条没通过复核，不算依据' : '　·　逐字比对通过'}
+                                            {/* 三态：true 才算"逐字比对通过"，false 明说没通过，
+                                                undefined 是「参考材料」这类压根没参与复核的 —— 不能
+                                                默认说它通过了，那是把没验过的东西说成验过了。 */}
+                                            {l.verified === true ? '　·　逐字比对通过'
+                                              : l.verified === false ? '　·　这条没通过复核，不算依据'
+                                                : ''}
                                           </div>
                                         </div>
                                       ))}
@@ -590,7 +688,7 @@ export function Practice({ base }: { base: Base }) {
       ) : (
         <div className="empty-mn">
           <b>这个源暂时出不了题</b>
-          换一个题源试试，或者这个源的题都做过了。判分在服务端，不在这里猜。
+          换一个题源试试，也可能这个源的题都做完了。
         </div>
       )}
 
@@ -608,14 +706,9 @@ export function Practice({ base }: { base: Base }) {
         </div>
       ) : (
         <div className="note-mn">
-          还没有标过错因 —— 答错之后点「标个错因」才有。这些数字只来自你自己标的，不是模型猜的。
+          还没有标过错因 —— 答错之后点「标个错因」才有。
         </div>
       )}
-
-      <div className="note-mn">
-        判分档位写在题源上：<b>精确</b>是字符串比对，<b>AI 判分</b>会把答案和你的作答一起给模型看，
-        <b>看意思</b>允许同义表述。每一题的作答都会落进本机 answers 表，统计页读的就是这些行。
-      </div>
     </>
   )
 }

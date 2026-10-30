@@ -87,7 +87,6 @@ export function Stats({ base }: { base: Base }) {
   if (!timeTotal) weak.push('没有真实计时')
 
   const rows = (subs.data?.subjects || []).filter((s) => s.score)
-  const scoredTotal = rows.reduce((a, s) => a + (s.lessons_total || 0), 0)
   const speakPct = cov.data ? Math.round((cov.data.speakable_rate || 0) * 1000) / 10 : null
 
   return (
@@ -127,20 +126,16 @@ export function Stats({ base }: { base: Base }) {
       </div>
 
       {weak.length ? (
-        <Verdict tone="warn" tag="由下面的数字推出来"
-          title={`现在最该补的是：${weak.join('、')}。`}
-          desc="这行字不是模型写的 —— 是拿上面四个数按四条规则判出来的，触发几条就说几条。没有数据的时候它说的就是「没有」，不会替你凑一条。" />
+        <Verdict tone="warn" title={`最该补的：${weak.join('、')}`} />
       ) : (
-        <Verdict tone="good" tag="由下面的数字推出来"
-          title="四条主线都动过了。"
-          desc="讲次、词、作答、打卡都有真实记录 —— 没有明显掉队的一环，保持就行。" />
+        <Verdict tone="good" title="四项都在走，保持住。" />
       )}
 
       <div className="twocol-mn">
-        <Card title="讲题 · 自己盯自己" note="explain 表 · 每讲一次留一版">
+        <Card title="讲题记录">
           {!exs.data?.total ? (
-            <Empty title="这一台机器还没讲过题">
-              去练习页点一次「讲清这题」，这里就有一条记录 —— 没有记录就不给讲对率，不拿空分母凑数字。
+            <Empty title="还没有讲题记录">
+              在练习页点「讲清这题」，讲过的每一版都留在这里。
             </Empty>
           ) : (
             <>
@@ -154,17 +149,9 @@ export function Stats({ base }: { base: Base }) {
               <div className="note-mn bare">
                 {exs.data.votes_up + exs.data.votes_down > 0
                   ? `被评价过的 ${exs.data.votes_up + exs.data.votes_down} 次里，讲对率 ${Math.round((exs.data.votes_up / (exs.data.votes_up + exs.data.votes_down)) * 100)}%。`
-                  : '还没有人点过「讲得对 / 讲错了」—— 没有评价就不给讲对率。'}
-                {`　共留底 ${exs.data.revisions} 版（同一题重讲一次就多一版，好查前后说法是否一致），其中 ${exs.data.by_model} 版是模型写的。`}
+                  : '还没人点过「讲得对 / 讲错了」。'}
+                {exs.data.revisions ? `　一共留底 ${exs.data.revisions} 版。` : ''}
               </div>
-              {/* label 是行名、value 是右边那格数字 —— 之前把题源名塞进 value，
-                  于是 78px 的标签列空着、长长的英文名在右侧挤成两行。 */}
-              {(exs.data.by_source || []).map((s) => (
-                <Li key={s.source} label={s.source}
-                  pct={exs.data!.total ? (s.n / exs.data!.total) * 100 : 0}
-                  color={s.v ? 'var(--act)' : 'var(--line2)'}
-                  value={s.v ? `${s.n} 题 · 讲对 ${s.v}` : `${s.n} 题`} />
-              ))}
             </>
           )}
 
@@ -179,8 +166,8 @@ export function Stats({ base }: { base: Base }) {
           ) : cov.data ? (
             <>
               <div className="note-mn" style={{ marginTop: 12 }}>
-                全量扫过一遍，不是抽样：能讲的 <b style={{ color: 'var(--tx2)' }}>{cov.data.speakable}</b> / {cov.data.total} 题，
-                可讲率 <b style={{ color: 'var(--tx2)' }}>{speakPct}%</b>，平均置信度 <b style={{ color: 'var(--tx2)' }}>{cov.data.avg_confidence}</b>。
+                能讲的 <b style={{ color: 'var(--tx2)' }}>{cov.data.speakable}</b> / {cov.data.total} 题，
+                可讲率 <b style={{ color: 'var(--tx2)' }}>{speakPct}%</b>。
               </div>
               {/* 顺序由「能不能讲」定，不能靠后端字典序 ——
                   按对象键遍历会把「有据可依」埋到最下面，读的人第一眼看到的是最没用的那档。
@@ -202,12 +189,9 @@ export function Stats({ base }: { base: Base }) {
                     value={`${n} 题${p < 1 ? ` · ${p.toFixed(1)}%` : ''}`} />
                 )
               })}
-              <div className="note-mn">
-                {cov.data.note || '「无解析 · 可定位」不是失败 —— 原卷只给了答案没给依据，本机不编，让人自己背。'}
-              </div>
             </>
           ) : (
-            <div className="note-mn" style={{ marginTop: 12 }}>可讲率：取不到（{cov.err || '接口没回来'}）</div>
+            <div className="note-mn" style={{ marginTop: 12 }}>可讲率没算出来。</div>
           )}
         </Card>
 
@@ -219,15 +203,13 @@ export function Stats({ base }: { base: Base }) {
             })}
           </div>
           <div className="note-mn">
-            70 个格子里只有 {c?.count ?? 0} 个有色。不做「连续 99 天」的美化图 —— 真实几天就是几天。
-            {c?.note ? '　' + c.note : ''}
+            近 70 天里有 {c?.count ?? 0} 天学过。
           </div>
         </Card>
       </div>
 
       <div className="twocol-mn">
-        <Card title="讲次 · 按科目"
-          note={scoredTotal ? `分母是有分值的 ${scoredTotal} 讲，不是 ${lessons.total}` : undefined}>
+        <Card title="讲次 · 按科目">
           {rows.length ? (
             rows.map((s) => (
               <Li key={s.id} label={s.name}
@@ -237,11 +219,11 @@ export function Stats({ base }: { base: Base }) {
             ))
           ) : (
             <Empty title="还没有带分值的科目">
-              讲次进度按科目拆要等科目有了分值才成立 —— 没有分值就没有额度，也不该有这张表。
+              科目有了分值，讲次进度才按分值额度拆开算。
             </Empty>
           )}
           <div className="note-mn">
-            C 语言那类不计分的课单独排在最后，条是灰的：它进不了额度，也因此不算「落后」。
+            不计分的课排在最后，条是灰的 —— 它不占额度，也不算落后。
           </div>
         </Card>
 
@@ -255,13 +237,13 @@ export function Stats({ base }: { base: Base }) {
             ))
           ) : (
             <Empty title="还没有词进记忆">
-              去背单词页背几张卡，这里才会有盒分布 —— 不是空着好看，是真的没有。
+              背几张卡，这里就会有盒分布。
             </Empty>
           )}
           <div className="note-mn">
             {timeTotal
-              ? `累计投入 ${hm(timeTotal)}，今天 ${d?.time?.today ?? 0} 分钟 —— 只算播放器真的报上来的秒数。`
-              : '投入时间一直是 0 分钟 —— 播放器还没接计时。不编「已投入 42 小时」，就让它空着。'}
+              ? `累计投入 ${hm(timeTotal)}，今天 ${d?.time?.today ?? 0} 分钟。`
+              : '还没有计时记录。'}
           </div>
         </Card>
       </div>
@@ -269,8 +251,7 @@ export function Stats({ base }: { base: Base }) {
       <div className="note-mn">
         本机家底合计 <b style={{ color: 'var(--tx2)' }}>{words.total + (d?.bank?.total ?? 0) + examN + cardTotal}</b> 条
         （词 {words.total} + 语法 {d?.bank?.total ?? 0} + 真题 {examN || '—'} + 考点卡 {cardTotal}）。
-        {booksN > words.total ? `　另有 ${books.length - 1} 本词书共 ${booksN} 词，可背总数 ${booksN}。` : ''}
-        上面每个数字都能用一条 curl 打回同一行 —— 统计页不自己算第二遍。
+        {booksN > words.total ? `　另有 ${books.length - 1} 本词书共 ${booksN} 词。` : ''}
       </div>
     </>
   )

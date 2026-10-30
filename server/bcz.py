@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """百词斩词条客户端（TCompactProtocol over HTTP，零第三方依赖）。
 
-协议细节来自 `F:\项目\反编译\bcz_analysis\百词斩单词接口逆向报告.md`：
+协议按 TCompactProtocol 线格式实现，要点如下：
 - URL：`POST {host}/rpc/{service}/{method}/{毫秒时间戳}`
 - 请求体必须是 **4 字节大端长度帧 + TCompactProtocol 数据**（不帧直接 422）
 - 响应同样是「长度帧 + Compact」，这里自动剥掉

@@ -1,49 +1,70 @@
-import { useEffect, useState } from 'react'
 import { Icon, type IconName } from './Icon'
 import { clsColor } from './V6'
-import { callTool, type Base } from '../lib/api'
+import { Sel } from './Sel'
+import { type Base } from '../lib/api'
+import { useTool } from '../lib/useTool'
 
 export type PageKey =
   | 'home' | 'today' | 'classroom' | 'courses' | 'schedule' | 'vocab'
-  | 'practice' | 'exam' | 'stats' | 'writing' | 'agent' | 'canvas'
+  | 'practice' | 'notes' | 'notesAll' | 'exam' | 'stats' | 'writing' | 'agent' | 'canvas'
 
 export type NavItem = { k: PageKey; t: string; n: IconName; cnt?: (b: Base) => number }
 
-/* 左栏按 docs/style-A-dark.html 定稿分三段：
-   ① 课程 —— 五门课平铺，点哪门看哪门（带科目色点和已学讲次）
-   ② 这门课 —— 课程主页 / 课堂 / 课表 / 背单词 / 练习，都跟着当前科目走
-   ③ 全部 —— 今日 / 考场 / 统计 / 作文 / 画布 / 设置
-
-   原来是「今日 / 学 / 记 / 设」四组十一个入口平铺，看不出「我在哪门课里」。
-   现在科目在左栏，点一下整站跟着换科目 —— 不用每个页面各选一次。 */
-
-const COURSE_NAV: NavItem[] = [
+/* 左栏定稿（docs/style-C-cover.html）：极窄图标条 56px。
+   横向空间全部让给内容 —— 236px 的文字导航在 1440 屏上要吃掉十六分之一，
+   而它每天只被点几次。图标 + hover 提示够用，选中项用左侧 2px 琥珀竖条标位。
+   科目不在这里：它属于「当前课程」，放顶栏那条上下文里。 */
+const ICON_NAV: { k: PageKey; t: string; n: IconName }[] = [
+  { k: 'today', t: '今日', n: 'today' },
   { k: 'home', t: '课程主页', n: 'courses' },
   { k: 'classroom', t: '课堂', n: 'classroom' },
   { k: 'schedule', t: '课表', n: 'schedule' },
-  { k: 'vocab', t: '背单词', n: 'vocab', cnt: (b) => b.kpi?.vocab_total ?? 0 },
-  { k: 'practice', t: '练习', n: 'practice', cnt: (b) => b.exercise_bank?.total ?? 0 },
+  { k: 'practice', t: '练习', n: 'practice' },
+  /* 左栏这个「笔记」是全部课的笔记，不跟课程走 —— 顶栏那个「笔记」才是这一门课的。
+     两个入口同时存在是有意的：一个是学到这一讲顺手记（跟课），一个是翻旧账（全局）。 */
+  { k: 'notesAll', t: '笔记（全部课）', n: 'writing' },
+  { k: 'vocab', t: '背单词', n: 'vocab' },
 ]
 
-const ALL_NAV: NavItem[] = [
-  { k: 'today', t: '今日', n: 'today' },
-  { k: 'exam', t: '考场', n: 'exam', cnt: (b) => b.kpi?.exam_papers ?? 0 },
+const ICON_NAV_TAIL: { k: PageKey; t: string; n: IconName }[] = [
+  { k: 'exam', t: '考场', n: 'exam' },
   { k: 'stats', t: '统计', n: 'stats' },
-  { k: 'writing', t: '作文', n: 'writing' },
+  { k: 'courses', t: '课程库', n: 'courses' },
   { k: 'canvas', t: '画布', n: 'canvas' },
   { k: 'agent', t: '设置', n: 'agent' },
 ]
 
-export const NAV: NavItem[] = COURSE_NAV.concat(ALL_NAV)
+/* 顶栏那组「这门课的视图」胶囊（C 稿的 .vt）：
+   同属一门课的几个面，切换不离开这门课 —— 不用每次都回左栏找。
+
+   固定五项是每门课都有的；「背单词」不是 —— 英语要背 3790 个词，高数不用背单词，
+   所以它按科目出没（subject.has_vocab 由后端按词表归属算，不是前端写死名单）。 */
+const COURSE_TABS_FIXED: { k: PageKey; t: string }[] = [
+  { k: 'home', t: '课程主页' },
+  { k: 'classroom', t: '课堂' },
+  { k: 'schedule', t: '课表' },
+  { k: 'practice', t: '练习' },
+  { k: 'notes', t: '笔记' },
+]
+
+/* 这些页不属于「某一门课」，顶栏就不该出现那一排视图胶囊：
+   今日是五门课混排，课程库/考场/统计是全局，画布和设置是工具，笔记总览是全部课。 */
+const NO_COURSE_TABS: PageKey[] = ['today', 'courses', 'exam', 'stats', 'canvas', 'agent', 'notesAll']
+
+export const NAV: NavItem[] = ICON_NAV.concat(ICON_NAV_TAIL).map((x) => ({ k: x.k, t: x.t, n: x.n }))
 
 export const TITLES: Record<PageKey, { kick: string; h1: string; sub: string }> = {
   home: { kick: '课程', h1: '这门课', sub: '' },
   today: { kick: '今日', h1: '今天怎么排', sub: '按「断点续学 > 到期复习 > 最大错因 > 未开科目」现场算' },
-  classroom: { kick: '课堂', h1: '一屏学完一讲', sub: '视频 + 讲义 + 本讲词群 + 当堂测' },
+  /* 课堂页只要一个名字。以前那句「一屏学完一讲 / 视频+讲义+词群+当堂测」是宣传语，
+     用户明确要删 —— 这一页干什么，用户比谁都清楚，不用自我介绍。 */
+  classroom: { kick: '课堂', h1: '课堂', sub: '' },
   courses: { kick: '课程库', h1: '课程 + 本地资料', sub: '进度直接读本机数据' },
   schedule: { kick: '课表', h1: '这七天怎么排', sub: '计划由规则生成，完成情况来自真实记录' },
   vocab: { kick: '背单词', h1: '今天背这一组', sub: 'SM-2 记忆状态存在本机数据库，评分即落库' },
   practice: { kick: '练习', h1: '按考点刷', sub: '所有题源共用一张表 · 判分在服务端，不提前泄答案' },
+  notes: { kick: '笔记', h1: '这门课的笔记', sub: '按讲次归位：哪一讲记的，就回到哪一讲' },
+  notesAll: { kick: '笔记', h1: '全部笔记', sub: '五门课都在这里，按时间倒序' },
   exam: { kick: '考场', h1: '真题卷', sub: '答案来自 exam_papers.json' },
   stats: { kick: '统计', h1: '家底与进度', sub: '只展示能核对到源头的数字' },
   writing: { kick: '作文', h1: '写一篇', sub: '本机先数能数的（词数 / 要点 / 格式），语言与文采要模型判 —— 模型没接就写「没判」，不给分' },
@@ -51,158 +72,142 @@ export const TITLES: Record<PageKey, { kick: string; h1: string; sub: string }> 
   canvas: { kick: '画布', h1: '笔记画布', sub: '导图存在本机，可拉 XMind / Obsidian 等来源' },
 }
 
-/* 科目名太长会把左栏撑出省略号，短名留给左栏用（全名在 title 与课程主页抬头里）。 */
-function shortName(n: string) {
-  return n.replace(/基础与程序设计|程序设计|理论|高等/g, '').trim() || n
+function coverOf(s: any): string {
+  const c = String(s?.cover || '')
+  if (!c) return ''
+  return /^https?:\/\//i.test(c) ? c : '/' + c.replace(/^\//, '')
 }
 
 export function Shell({
-  page, onGo, base, children, topRight, sid, onSid, bare,
+  page, onGo, base, children, topRight, sid, onSid,
 }: {
   page: PageKey
-  onGo: (p: PageKey, o?: { sid?: string }) => void
+  /* entry 说明「这一次是从哪条路进去的」：顶栏胶囊 = tab，左栏图标 = rail。
+     练习页靠这个决定默认范围（tab 跟着当前讲次，rail 是整门课）。 */
+  onGo: (p: PageKey, o?: { sid?: string; entry?: 'tab' | 'rail' }) => void
   base: Base | null
   children: React.ReactNode
   topRight?: React.ReactNode
   sid?: string
   onSid?: (id: string) => void
-  /* bare：这一页自己画抬头（课程主页 h1 42px），壳不再多顶一条标题 */
   bare?: boolean
+  /* bare 已废弃（pagehead 整个删了），参数留着只是兼容旧调用 —— 下次清理时去掉 */
 }) {
   const t = TITLES[page]
   const subs: any[] = (base as any)?.subjects ?? []
+  const cur = subs.find((s) => s.id === sid) || subs[0]
+  /* 距考天数：诚实取，取不到就写「未设考试日期」—— 不编一个倒计时。 */
+  const wk = useTool<{ days_left?: number; exam_date?: string }>('plan_week', { days: 1 })
+  const daysLeft = wk.data?.days_left
+  const done = cur?.lessons_done ?? 0
+  const total = cur?.lessons_total ?? 0
+  const cv = coverOf(cur)
+  /* 封面渐变铺满整个内容区（不是只铺抬头那一条）。
+     做法是把它挂到 .content 自己的背景上，background-attachment: fixed ——
+     图钉在视口不动，正文从上面滚过去，等于一进屋就有一层环境光。
+     只在课程主页挂：课堂/练习页要的是安静的黑，不是海报。 */
+  const fullCv = page === 'home' && !!cv
+  /* 这门课要不要背单词：后端按词表归属算（datahub.vocab_owner）。
+     高数没有词表，就不出现这一项 —— 不是前端写死一份名单。 */
+  const hasVocab = !!cur?.has_vocab
+  const tabs = hasVocab ? COURSE_TABS_FIXED.concat([{ k: 'vocab' as PageKey, t: '背单词' }]) : COURSE_TABS_FIXED
+  /* 哪些页不显示这排胶囊：全局页与工具页（见 NO_COURSE_TABS），
+     「从左栏进来的背单词」—— 那一页看的是全部词书，不属于任何一门课，
+     以及一门课都没有的时候（空库）—— 那排 tab 点了也没有内容可切。 */
+  const showTabs = subs.length > 0 && NO_COURSE_TABS.indexOf(page) < 0
+    && (page !== 'vocab' || hasVocab)
+
   return (
-    // 画布页把侧栏收成 56px 图标条（开发文档 3.1）：画布是「一屏都在画」，一条 236px 的
-    // 常驻导航在那儿会一直抢走一条地。其它页照常展开 —— 不留给用户手动收，切页就恢复。
-    <div className={'app app-mn' + (page === 'canvas' ? ' focus' : '')}>
-      <aside className="rail">
-        {/* 品牌与「接着学」卡都在滚动条外面：
-            品牌是路标，不该跟着导航一起滚走；底卡是常驻入口，滚到下面才看见等于没有。
-            只有中间那串分组会滚 —— 以后再加页面，也是这一串变长。 */}
-        <div className="brand">
-          <div className="lg">研</div>
-          <div><b>研学台</b><span>StudyDeck · 2027 专升本</span></div>
-        </div>
-        <div className="rail-in">
-          <nav className="nav">
-            {subs.length ? (
-              <div className="navgrp">
-                <div className="gh">课程</div>
-                {subs.map((s) => (
-                  <button key={s.id} className={'ci' + (s.id === sid ? ' on' : '')}
-                    title={s.name + ' · 已学 ' + (s.lessons_done || 0) + ' / ' + (s.lessons_total || 0) + ' 讲'}
-                    onClick={() => (onSid ? onSid(s.id) : onGo('home', { sid: s.id }))}>
-                    <span className="dot" style={{ background: clsColor(s.cls || s.accent || s.id) }} />
-                    <span className="nm">{shortName(s.name)}</span>
-                    <span className="pg">{s.lessons_done || 0}</span>
-                  </button>
-                ))}
-              </div>
-            ) : null}
-
-            <div className="navgrp">
-              <div className="gh">这门课</div>
-              {COURSE_NAV.map((it) => (
-                <button key={it.k} className={'nv' + (page === it.k ? ' on' : '')}
-                  title={it.t + (it.cnt && base ? ' · ' + it.cnt(base) : '')}
-                  aria-label={it.t}
-                  onClick={() => onGo(it.k, { sid })}>
-                  <Icon n={it.n} className="ic" size={15} />
-                  {it.t}
-                  {it.cnt && base ? <span className="cn">{it.cnt(base)}</span> : null}
-                </button>
-              ))}
-            </div>
-
-            <div className="navgrp">
-              <div className="gh">全部</div>
-              {ALL_NAV.map((it) => (
-                <button key={it.k} className={'nv' + (page === it.k ? ' on' : '')}
-                  title={it.t + (it.cnt && base ? ' · ' + it.cnt(base) : '')}
-                  aria-label={it.t}
-                  onClick={() => onGo(it.k)}>
-                  <Icon n={it.n} className="ic" size={15} />
-                  {it.t}
-                  {it.cnt && base ? <span className="cn">{it.cnt(base)}</span> : null}
-                </button>
-              ))}
-            </div>
-          </nav>
-        </div>
-        <RailFoot onGo={onGo} base={base} />
+    <div className="app app-mn app-icons">
+      <aside className="rail rail-icons">
+        <div className="lg" title="研学台 StudyDeck">研</div>
+        <nav className="railnav">
+          {ICON_NAV.map((it) => (
+            <button key={it.k} className={'rb' + (page === it.k ? ' on' : '')}
+              title={it.t} aria-label={it.t}
+              onClick={() => onGo(it.k, { sid, entry: 'rail' })}>
+              <Icon n={it.n} size={16} />
+            </button>
+          ))}
+        </nav>
+        <div className="sp" />
+        <nav className="railnav">
+          {ICON_NAV_TAIL.map((it) => (
+            <button key={it.k} className={'rb' + (page === it.k ? ' on' : '')}
+              title={it.t} aria-label={it.t}
+              onClick={() => onGo(it.k)}>
+              <Icon n={it.n} size={16} />
+            </button>
+          ))}
+        </nav>
       </aside>
+
       <div className="main">
-        {!bare ? (
-          <header className="top">
-            {/* key 一换，标题就重新进场：切页时字从下方 4px 浮上来，
-                不是整条顶栏闪一下。只动标题，不动右边那排 pill —— 那些是常驻的。 */}
-            <h2 key={page}>{t.h1}</h2>
-            <span className="nt" key={page + '-sub'}>{t.sub}</span>
-            <div className="sp">{topRight}</div>
-          </header>
-        ) : (
-          <div className="top top-bare">{topRight ? <div className="sp">{topRight}</div> : null}</div>
-        )}
-        <div className={'content' + (bare ? ' content-bare' : '')}>{children}</div>
+        {/* 课程主页的背景光：把课程封面糊成一片色，铺满整个工作区（顶栏也在它上面）。
+            它不是一张图 —— 是这门课的「环境色」，所以要虚到认不出字，只剩冷暖。
+            用绝对定位挂在不滚动的 .main 上：正文滚，底色不动。 */}
+        {fullCv ? (
+          <div className="shell-cv" aria-hidden="true">
+            <i style={{ backgroundImage: `url("${cv}")` }} />
+          </div>
+        ) : null}
+        <header className="top top-ctx">
+          {/* 属于某门课的页：左段是当前课程（封面 + 课名 + 分值），点它就是换课 —— 全站只在这一处换。
+              不属于某门课的页：只留一个页名，说明「你在哪」，不留空地让版式塌掉。 */}
+          {showTabs ? (
+            cur ? (
+              <div className="tcur">
+                <span className={'cv' + (cv ? '' : ' flat')}
+                  style={cv ? { backgroundImage: `url("${cv}")` }
+                    : { background: clsColor(cur.cls || cur.accent || cur.id) }} />
+                <Sel className="tcur-sel" value={String(sid || cur.id)}
+                  ariaLabel="切换当前课程"
+                  onChange={(v) => (onSid ? onSid(v) : onGo('home', { sid: v }))}
+                  options={subs.map((s) => ({
+                    value: s.id,
+                    label: s.name,
+                    note: (s.score ? s.score + ' 分' : '不计分') + ' · ' + (s.lessons_done ?? 0) + '/' + (s.lessons_total ?? 0) + ' 讲',
+                  }))} />
+              </div>
+            ) : <div className="tcur"><span className="cv flat" /><b>还没有课程</b></div>
+          ) : (
+            <div className="tplain">
+              <span className="dot" aria-hidden="true"
+                style={{ background: cur ? clsColor(cur.cls || cur.accent || cur.id) : 'var(--tx3)' }} />
+              {t.kick}
+            </div>
+          )}
+
+          {showTabs ? (
+            <div className="tvt" role="tablist" aria-label="这门课的视图">
+              {tabs.map((x) => (
+                <button key={x.k} role="tab" aria-selected={page === x.k}
+                  className={page === x.k ? 'on' : ''}
+                  onClick={() => onGo(x.k, { sid, entry: 'tab' })}>{x.t}</button>
+              ))}
+            </div>
+          ) : null}
+
+          <div className="trt">
+            {showTabs ? <span className="pill"><b>{done}</b>/{total} 讲</span> : null}
+            <span className="pill" title={wk.data?.exam_date ? '考试日期 ' + wk.data.exam_date : '还没设考试日期'}>
+              {daysLeft != null ? <>距考 <b>{daysLeft}</b> 天</> : '未设考试日期'}
+            </span>
+            {topRight}
+          </div>
+        </header>
+
+        <div className="content">
+          {/* 不再有 pagehead 大标题。以前每页顶一条「今日 / 今天怎么排 / 按……现场算」，
+              三行里有两行是自我介绍 —— 用户原话：能不能别这么人机。
+              每页的内容自己会说话，壳不再替它念旁白。「我在哪」由顶栏左段的页名标回答。 */}
+          {children}
+        </div>
       </div>
     </div>
   )
 }
 
-function RailFoot({ onGo, base }: { onGo: (p: PageKey, o?: { sid?: string }) => void; base: Base | null }) {
-  // 断点位置要真查，不能写死一句「还没取到」。
-  const cur = useToolCur(base)
-  const has = !!cur?.lesson?.title
-  const t = cur?.lesson?.title || '还没有断点'
-  const sub = has
-    ? (cur?.lesson?.chapter || '')
-    : '本机还没有课程数据 —— 去「设置」导一份，或者直接跟助手说你要学什么'
-  return (
-    // 外层 .railbt 是 v6 的行内边距容器，内层 .railfoot 是老样式里的卡片 ——
-    // 两层都得在：v6 的 focus 收起规则挂在 .railbt 上，老样式挂在 .railfoot 上。
-    <div className="railbt">
-    <div className="railfoot">
-      <div className="k">接着学</div>
-      <div className="t" title={t}>{t}</div>
-      <div className="m" title={sub}>{sub}</div>
-      {/* 有一讲真能接着学，才给这颗按钮。
-          空库里挂着「继续这一讲」= 点进去一片空白，比没有按钮更糟。 */}
-      {has
-        ? <button className="go" title="继续这一讲" onClick={() => onGo('classroom')}>
-            {/* 侧栏收起时按钮只剩 40px，字被 font-size:0 收掉了 —— 留一枚图标兜底，
-                免得收起来之后那里是个空白方块。 */}
-            <Icon n="play" size={15} />
-            <span className="go-t">继续这一讲</span>
-          </button>
-        : <button className="go ghost" title="去导课程" onClick={() => onGo('agent')}>
-            <Icon n="plus" size={15} />
-            <span className="go-t">去导课程</span>
-          </button>}
-    </div>
-    </div>
-  )
-}
-
-// 侧栏底部只要断点那一讲，单独拉一次，不跟页面抢 useTool 的生命周期。
-function useToolCur(_base: Base | null) {
-  const [d, setD] = useState<{ lesson?: { title?: string; chapter?: string } } | null>(null)
-  const [tick, setTick] = useState(0)
-  // base 换了（15 秒轮询）就重查 —— 入库刚发生，别让侧栏一直挂「还没有断点」。
-  useEffect(() => { setTick((t) => t + 1) }, [_base])
-  useEffect(() => {
-    let alive = true
-    // 写死 subject:'english' 是通用性的漏网之鱼：空库 / 别的考试根本没有英语。
-    // 不传 subject，让后端按「最近动过」挑断点。
-    callTool('get_current_lesson', {}).then((r) => {
-      if (alive) setD((r.data as any) || null)
-    }).catch(() => {})
-    return () => { alive = false }
-  }, [tick])
-  return d
-}
-
-// 通用小件，各页直接用，别再各写一份。
-// v6：这些还留在 Shell 里是因为画布页在用；页面自己的容器已经从 V6.tsx 取。
 export function Sec({ title, note, children, style }: { title: string; note?: string; children: React.ReactNode; style?: React.CSSProperties }) {
   return (
     <div className="blkcard-mn" style={style}>

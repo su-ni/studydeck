@@ -48,3 +48,7 @@ desktop.ini
 
 # 空库实例配置：带本机绝对路径，且历史版本里曾含真实 token —— 永不入库
 server/config.blank.json
+
+# 一次性探针（含明文 access_token，本地留存，绝不入库）
+build/
+_probe_*.py
