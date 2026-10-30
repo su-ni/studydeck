@@ -1015,16 +1015,31 @@ export function Chat({
   const [asr, setAsr] = useState<AsrState>(asrSnapshot())
   useEffect(() => asrSubscribe(setAsr), [])
 
-  /* 转写结果落地：有字就接在现有输入后面，不覆盖人已经打了一半的话。
-     取完即清（recorder.takeText），所以切页回来不会重复粘一遍。 */
+  /* 按下麦克风那一刻输入框里已有的字。实时的字都接在它后面，
+     这样「先打半句再补一句语音」不会把打好的冲掉。 */
+  const liveBaseRef = useRef('')
+
+  /* 实时上屏：录音期间后端每切出一句就把文字送回来，这里立刻写进输入框。
+     —— 人要的就是这个：话还没说完，前面的字已经在框里了。 */
+  useEffect(() => {
+    if (asr.phase !== 'recording') return
+    if (!asr.live) return
+    setText(liveBaseRef.current + asr.live)
+    requestAnimationFrame(() => {
+      const t = taRef.current
+      if (!t) return
+      t.style.height = 'auto'
+      t.style.height = Math.min(t.scrollHeight, 132) + 'px'
+    })
+  }, [asr.live, asr.phase])
+
+  /* 停止后的收尾：把最后半句也拿到，替换成完整文字。
+     取一次即清（recorder.takeText），所以切页回来不会重复粘一遍。 */
   useEffect(() => {
     if (asr.phase !== 'idle') return
     const got = asrTakeText()
     if (!got) return
-    setText((old) => {
-      const needSep = old.length > 0 && !/\s$/.test(old)
-      return old + (needSep ? ' ' : '') + got
-    })
+    setText(liveBaseRef.current + got)
     requestAnimationFrame(() => {
       const t = taRef.current
       if (!t) return
@@ -1056,6 +1071,7 @@ export function Chat({
       location.hash = 'agent'
       return
     }
+    liveBaseRef.current = text
     await asrStart()
   }
 
@@ -1803,7 +1819,11 @@ export function Chat({
                 t.style.height = Math.min(t.scrollHeight, 132) + 'px'
               }}
               onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  /* 正在说话不发：发了之后框被清空，后半句的实时字就接不上前面了。 */
+                  if (asr.phase !== 'recording') send()
+                }
                 if (e.key === 'Escape' && editIdx != null) { setEditIdx(null); setText('') }
                 /* ↑ 调回上一条自己说过的话：改一句话不用翻上去点 */
                 if (e.key === 'ArrowUp' && !text && !busy) {
@@ -1831,10 +1851,12 @@ export function Chat({
               </button>
               {asr.phase === 'recording' ? (
                 <span className="mic-t">
-                  <i className="dot" />{mmss(asr.seconds)} · 再点麦克风停
+                  <i className="dot" />{mmss(asr.seconds)}
+                  {asr.live ? ' · 已出 ' + asr.live.length + ' 字' : ''}
+                  {' · 再点停'}
                 </span>
               ) : asr.phase === 'transcribing' ? (
-                <span className="mic-t dim">在转…</span>
+                <span className="mic-t dim">在收尾…</span>
               ) : null}
               <div className="sp" />
               {msgs.length > 0 && (
@@ -1849,8 +1871,8 @@ export function Chat({
                 <button
                   className="send"
                   onClick={() => send()}
-                  disabled={!text.trim()}
-                  title="发送（Enter）"
+                  disabled={!text.trim() || asr.phase === 'recording'}
+                  title={asr.phase === 'recording' ? '先把话说完' : '发送（Enter）'}
                 >
                   <Icon n="chev" size={15} />
                 </button>

@@ -1,4 +1,4 @@
-// 语音输入 · 模块级录音器
+// 语音输入 · 模块级录音器（实时版）
 //
 // 为什么不做成组件的 state：
 //   人要的是「说一句话，按一下停」。说的过程里可能去翻讲义、切课程、点别的地方 ——
@@ -9,11 +9,19 @@
 // 明确的边界：
 //   · 只有 stop() 会停 —— 不监听 document 的 click / pointerdown / blur / visibilitychange。
 //     点屏幕任何地方都不影响录制。
-//   · 唯一的自动停是 5 分钟上限（跟后端 MAX_SEC 对齐），到点自己停并照常转写。
+//   · 唯一的自动停是 5 分钟上限，到点自己停并照常收尾。
 //
-// 转写结果不直接塞进谁家 state：放在 takeText() 里，谁在场谁取，取完即清。
+// 为什么不用 MediaRecorder：
+//   MediaRecorder 给的是 webm 分片，只有第一片带容器头，后面的片单独解不开 ——
+//   想边录边转就得把整段攒起来重解，录得越久越慢。这里改成 AudioWorklet 直接取
+//   原始 PCM（每 100ms 一块，Int16 小端），后端拿到就能算，零解码。
+//
+// 为什么 AudioContext 不指定 16000：
+//   实测在 headless Chrome 里 new AudioContext({sampleRate:16000}) 会拿到一整条
+//   静音的流（RMS 恒为 0）。用系统默认（48k）就正常。降采样交给后端做。
 
 const MAX_SEC = 300
+const CHUNK_MS = 100
 
 export type AsrPhase = 'idle' | 'recording' | 'transcribing' | 'error'
 
@@ -22,25 +30,26 @@ export type AsrState = {
   seconds: number
   error: string
   lastMs: number
+  /** 录音过程中实时累积出来的文字。停止后由 takeText() 取走整段。 */
+  live: string
 }
 
-const MIME_CANDIDATES = [
-  'audio/webm;codecs=opus',
-  'audio/webm',
-  'audio/ogg;codecs=opus',
-  'audio/mp4',
-]
-
-let _state: AsrState = { phase: 'idle', seconds: 0, error: '', lastMs: 0 }
+let _state: AsrState = { phase: 'idle', seconds: 0, error: '', lastMs: 0, live: '' }
 const _subs = new Set<(s: AsrState) => void>()
 
-let _mr: MediaRecorder | null = null
+let _ctx: AudioContext | null = null
+let _node: AudioWorkletNode | null = null
 let _stream: MediaStream | null = null
-let _chunks: Blob[] = []
 let _timer: ReturnType<typeof setInterval> | null = null
 let _t0 = 0
+let _sid = ''
 let _pendingText = ''
-let _mime = ''
+
+// 发送队列：块必须按顺序到后端，所以串行发。后端切句时会阻塞几百毫秒，
+// 这期间前端照常往里塞，塞的是内存里的 ArrayBuffer，不会丢音频。
+const _queue: ArrayBuffer[] = []
+let _pumping = false
+let _stopping = false
 
 function emit(patch: Partial<AsrState>) {
   _state = { ..._state, ...patch }
@@ -59,7 +68,7 @@ export function snapshot() {
   return _state
 }
 
-/** 取走这次转写出来的文字。取一次就空，避免切页回来重复粘一遍。 */
+/** 取走这次转写出来的整段文字。取一次就空，避免切页回来重复粘一遍。 */
 export function takeText() {
   const t = _pendingText
   _pendingText = ''
@@ -70,25 +79,90 @@ export function isRecording() {
   return _state.phase === 'recording'
 }
 
-function pickMime() {
-  if (typeof MediaRecorder === 'undefined') return ''
-  for (const m of MIME_CANDIDATES) {
-    try {
-      if (MediaRecorder.isTypeSupported(m)) return m
-    } catch { /* 老浏览器可能直接抛 */ }
-  }
-  return ''
+function newSid() {
+  return 'v' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8)
 }
 
 function teardown() {
   if (_timer) { clearInterval(_timer); _timer = null }
+  try { if (_node) _node.port.onmessage = null } catch { /* 已经关了 */ }
+  try { _node?.disconnect() } catch { /* 已经断了 */ }
+  try { _ctx?.close() } catch { /* 已经关了 */ }
   if (_stream) {
     for (const t of _stream.getTracks()) {
       try { t.stop() } catch { /* 已经停了 */ }
     }
     _stream = null
   }
-  _mr = null
+  _node = null
+  _ctx = null
+}
+
+/* 采集器：攒够 100ms 就 post 一次。放在 AudioWorklet 里跑，
+   不受主线程渲染卡顿影响（主线程在画消息的时候也不会漏采样）。 */
+const TAP_CODE = `
+class MicTap extends AudioWorkletProcessor {
+  constructor() {
+    super()
+    this.cap = Math.max(1, Math.round(sampleRate * ${CHUNK_MS} / 1000))
+    this.buf = new Float32Array(this.cap)
+    this.n = 0
+    this.silent = 0
+  }
+  process(inputs) {
+    var ch = inputs[0] && inputs[0][0]
+    if (!ch) return true
+    for (var i = 0; i < ch.length; i++) {
+      this.buf[this.n++] = ch[i]
+      if (this.n >= this.cap) {
+        var out = this.buf.slice(0, this.n)
+        this.port.postMessage(out, [out.buffer])
+        this.n = 0
+      }
+    }
+    return true
+  }
+}
+registerProcessor('mic-tap', MicTap)
+`
+
+function f32ToI16(f: Float32Array): ArrayBuffer {
+  const out = new Int16Array(f.length)
+  for (let i = 0; i < f.length; i++) {
+    let v = f[i]
+    if (v > 1) v = 1
+    else if (v < -1) v = -1
+    out[i] = v < 0 ? v * 0x8000 : v * 0x7fff
+  }
+  return out.buffer
+}
+
+async function pump() {
+  if (_pumping) return
+  _pumping = true
+  try {
+    while (_queue.length) {
+      const body = _queue.shift() as ArrayBuffer
+      const rate = _ctx?.sampleRate || 48000
+      try {
+        const r = await fetch(
+          `/api/asr/live/feed?sid=${encodeURIComponent(_sid)}&rate=${rate}`,
+          { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body },
+        )
+        const d = await r.json()
+        if (d && d.ok === false && d.error) {
+          emit({ error: d.error })
+        } else if (d && d.text) {
+          emit({ live: _state.live + d.text })
+        }
+      } catch {
+        // 单块失败不致命：后面还有块，而且停止时会用 finish 收尾。
+        // 这里不弹错，免得网络抖一下就打断人说话。
+      }
+    }
+  } finally {
+    _pumping = false
+  }
 }
 
 /** 开始录。要麦克风权限，第一次浏览器会弹一次 —— 拒绝就如实报，不假装在录。 */
@@ -98,6 +172,10 @@ export async function start(): Promise<{ ok: boolean; error?: string }> {
   if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
     emit({ phase: 'error', error: '这个浏览器没有录音接口' })
     return { ok: false, error: '这个浏览器没有录音接口' }
+  }
+  if (typeof AudioWorkletNode === 'undefined') {
+    emit({ phase: 'error', error: '这个浏览器不支持音频采集（缺 AudioWorklet）' })
+    return { ok: false, error: '这个浏览器不支持音频采集（缺 AudioWorklet）' }
   }
 
   let stream: MediaStream
@@ -123,105 +201,103 @@ export async function start(): Promise<{ ok: boolean; error?: string }> {
     return { ok: false, error: msg }
   }
 
-  const mime = pickMime()
-  if (!mime) {
-    try { for (const t of stream.getTracks()) t.stop() } catch { /* 无所谓 */ }
-    emit({ phase: 'error', error: '这个浏览器录不出能识别的音频格式' })
-    return { ok: false, error: '这个浏览器录不出能识别的音频格式' }
-  }
-
-  _stream = stream
-  _chunks = []
-  _mime = mime
-  _t0 = Date.now()
+  _sid = newSid()
+  _queue.length = 0
+  _stopping = false
 
   try {
-    const mr = new MediaRecorder(stream, { mimeType: mime })
-    _mr = mr
-    mr.ondataavailable = (ev) => {
-      if (ev.data && ev.data.size > 0) _chunks.push(ev.data)
+    // 先告诉后端开一个会话。失败也继续录 —— 停止时还有一次机会收尾。
+    try {
+      await fetch(`/api/asr/live/start?sid=${encodeURIComponent(_sid)}`, { method: 'POST' })
+    } catch { /* 后端不在也让人先说，块会排队 */ }
+
+    const ctx = new AudioContext()
+    await ctx.resume()
+    const url = URL.createObjectURL(new Blob([TAP_CODE], { type: 'application/javascript' }))
+    await ctx.audioWorklet.addModule(url)
+    URL.revokeObjectURL(url)
+
+    const node = new AudioWorkletNode(ctx, 'mic-tap')
+    node.port.onmessage = (ev) => {
+      if (_stopping) return
+      _queue.push(f32ToI16(ev.data as Float32Array))
+      if (_queue.length > 600) _queue.shift()   // 60 秒积压说明后端挂了，丢最老的
+      void pump()
     }
-    // 每秒切一片：长时间录制时内存里不会攒一个整段大文件
-    mr.start(1000)
+
+    const src = ctx.createMediaStreamSource(stream)
+    src.connect(node)
+
+    _ctx = ctx
+    _node = node
+    _stream = stream
   } catch (e: any) {
-    teardown()
+    try { for (const t of stream.getTracks()) t.stop() } catch { /* 无所谓 */ }
+    try { _ctx?.close() } catch { /* 无所谓 */ }
+    _ctx = null
     const msg = '录音器起不来：' + (e?.message || '未知原因')
     emit({ phase: 'error', error: msg })
     return { ok: false, error: msg }
   }
 
-  emit({ phase: 'recording', seconds: 0, error: '' })
+  _t0 = Date.now()
+  emit({ phase: 'recording', seconds: 0, error: '', live: '' })
   _timer = setInterval(() => {
     const s = Math.floor((Date.now() - _t0) / 1000)
     emit({ seconds: s })
-    // 唯一会自动停的情况：到上限。跟点哪儿没关系。
     if (s >= MAX_SEC) void stop()
   }, 1000)
 
   return { ok: true }
 }
 
-/** 停止并转写。返回识别出的文字（拿不到就空串，原因在 state.error 里）。 */
+/** 停止并收尾。返回这次录到的整段文字（拿不到就空串，原因在 state.error 里）。 */
 export async function stop(): Promise<string> {
-  if (_state.phase !== 'recording' || !_mr) return ''
+  if (_state.phase !== 'recording') return ''
 
-  const mr = _mr
+  _stopping = true
   const seconds = Math.floor((Date.now() - _t0) / 1000)
-
-  const blob: Blob = await new Promise<Blob>((resolve) => {
-    const done = () => resolve(new Blob(_chunks, { type: _mime }))
-    try {
-      mr.onstop = done
-      if (mr.state !== 'inactive') mr.stop()
-      else done()
-    } catch {
-      done()
-    }
-  })
-
   teardown()
   emit({ phase: 'transcribing', seconds })
 
-  if (!blob.size) {
-    emit({ phase: 'error', error: '这段没录到声音', seconds })
-    return ''
+  // 等队列里的块发完，否则最后半句会丢在内存里
+  const deadline = Date.now() + 15000
+  while ((_queue.length || _pumping) && Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 80))
   }
 
   const t0 = Date.now()
+  let tail = ''
   try {
-    const r = await fetch('/api/asr/transcribe', {
-      method: 'POST',
-      headers: { 'content-type': _mime || 'application/octet-stream' },
-      body: blob,
-    })
+    const r = await fetch(`/api/asr/live/finish?sid=${encodeURIComponent(_sid)}`, { method: 'POST' })
     const d = await r.json()
-    const ms = Date.now() - t0
-    if (!d?.ok) {
-      emit({ phase: 'error', error: d?.error || '没转出来', lastMs: ms, seconds })
-      return ''
+    if (d && d.ok === false && d.error) {
+      emit({ phase: 'error', error: d.error, lastMs: Date.now() - t0 })
+      _pendingText = _state.live
+      return _pendingText
     }
-    _pendingText = String(d.text || '')
-    emit({ phase: 'idle', error: '', lastMs: ms, seconds: d.seconds ?? seconds })
-    return _pendingText
+    tail = String(d?.text || '')
   } catch (e: any) {
-    const msg = '转写请求失败：' + (e?.message || '连不上本机服务')
-    emit({ phase: 'error', error: msg })
-    return ''
+    emit({ phase: 'error', error: '收尾失败：' + (e?.message || '连不上本机服务') })
+    _pendingText = _state.live
+    return _pendingText
   }
+
+  const full = _state.live + tail
+  _pendingText = full
+  emit({ phase: 'idle', error: '', live: full, lastMs: Date.now() - t0, seconds })
+  return full
 }
 
 /** 点了「算了」：丢掉这段，不转写。 */
 export function cancel() {
-  if (_state.phase === 'recording' && _mr) {
-    try {
-      _mr.onstop = null
-      if (_mr.state !== 'inactive') _mr.stop()
-    } catch { /* 无所谓 */ }
-  }
+  _stopping = true
+  _queue.length = 0
   teardown()
-  _chunks = []
+  if (_sid) { fetch(`/api/asr/live/finish?sid=${encodeURIComponent(_sid)}`, { method: 'POST' }).catch(() => { }) }
+  _sid = ''
   _pendingText = ''
-  emit({ phase: 'idle', seconds: 0, error: '' })
+  emit({ phase: 'idle', seconds: 0, error: '', live: '' })
 }
 
 /** 把上次那条错误抹掉（人点了「知道了」）。 */

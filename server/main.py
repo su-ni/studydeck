@@ -72,6 +72,28 @@ async def api_asr_transcribe(request: Request):
     return r
 
 
+# 实时：前端每 ~100ms 送一块 Int16 PCM，够一句就转出来。
+# 转写是阻塞的（几百毫秒），走线程池，别把事件循环卡住 ——
+# 卡住的话前端那些并发的小块会排队排到天荒地老。
+@app.post("/api/asr/live/start")
+def api_asr_live_start(sid: str):
+    return asr.live_start(sid)
+
+
+@app.post("/api/asr/live/feed")
+async def api_asr_live_feed(sid: str, request: Request, rate: int = 48000):
+    data = await request.body()
+    if len(data) > 2 * 1024 * 1024:
+        raise HTTPException(413, "单块太大")
+    from fastapi.concurrency import run_in_threadpool
+    return await run_in_threadpool(asr.live_feed, sid, data, rate)
+
+
+@app.post("/api/asr/live/finish")
+def api_asr_live_finish(sid: str):
+    return asr.live_finish(sid)
+
+
 @app.get("/api/base")
 def api_base():
     """首屏快照：不含 3790 词全量分组与 781 题正文（那两块按需走工具取）。"""

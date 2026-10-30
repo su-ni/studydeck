@@ -455,8 +455,9 @@ export function Agent({ base }: { base: Base }) {
           <>
             <div className="set-h">语音输入</div>
             <div className="set-sub">
-              在聊天框里按麦克风说话，本机转成文字再填进输入框。音频只在这台机器上转，
-              不出门；模型不装也能正常用键盘打字，装了才多这一个入口。
+              在聊天框里按麦克风说话，说的过程中字就跟着往外冒 —— 不是等你说完才动。
+              说完再点一下麦克风收尾。音频只在这台机器上转，不出门；
+              模型不装也能正常用键盘打字，装了才多这一个入口。
             </div>
             {msg ? <div className="set-note">{msg}</div> : null}
 
@@ -505,12 +506,15 @@ export function Agent({ base }: { base: Base }) {
                   <Row title="转写引擎"
                     sub="faster-whisper / CTranslate2，纯 CPU int8。不占显卡，也不往云上传。"
                     tag="本机" tagCls="im" />
+                  <Row title="出字节奏"
+                    sub="按句出：说完一句、停顿半秒，这句就转出来了（约 1 秒后到框里）。一直不停的话每 9 秒切一刀，免得一句话憋到最后才吐。"
+                    tag="边说边出" tagCls="ok" />
                   <Row title="一次最长"
-                    sub="5 分钟。到点自己停并照常转成文字 —— 不是把这段丢掉。"
+                    sub="5 分钟。到点自己停并照常收尾 —— 不是把这段丢掉。"
                     tag="300 秒" tagCls="im" />
                   <Row title="听错同音字怎么办"
-                    sub="base 是最小的那个模型，语速快或口音重时会听错（比如「语气」听成「与弃」）。转出来的字会填进输入框，发出去之前自己看一眼改一下就行。"
-                    tag="先改再发" tagCls="md" />
+                    sub="base 是最小的那个模型，语速快或口音重时会听错（比如「语气」听成「与弃」）。字是边说着边往框里写的，看到错的当场就能改，不用等说完。"
+                    tag="边写边改" tagCls="md" />
                 </>
               )
             })()}

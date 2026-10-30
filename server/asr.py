@@ -353,3 +353,206 @@ def transcribe(data, mime=""):
         "vad": use_vad,
         "lang": getattr(info, "language", "zh"),
     }
+
+
+# ---------------------------------------------------------------------------
+# 实时转写：边说边出字
+#
+# 做法不是「等录完再转」，而是把音频切成句：前端每 100ms 送一块，
+# 后端盯着能量 —— 一旦安静够久（人说话本来就有停顿），就把这一段拿出来转，
+# 转完立刻把文字吐回去。所以文字是跟着说话一段一段冒出来的。
+#
+# 为什么不用流式专用模型（paraformer-zh-streaming 那种 848MB 的）：
+# 已有的 141MB 模型转 5 秒音频只要 0.6 秒，按句切完全追得上说话速度，
+# 而且不用为人再下一次 700 兆。真正的逐字上屏和按句上屏，对「说一句话就发出」没差别。
+# ---------------------------------------------------------------------------
+_LIVE = {}
+_LIVE_LOCK = threading.Lock()
+LIVE_TTL = 300.0          # 5 分钟没动静就把这个会话清掉，别攒着吃内存
+SILENCE_RMS = 0.012       # 一块的 RMS 低于它算静音（约 -38dBFS）
+VOICE_RMS = 0.02          # 高过它才算「这块里有人说话」
+SILENCE_CUT_MS = 460      # 连续安静这么久 = 一句说完
+MAX_SEG_SEC = 9.0         # 一句话最长 9 秒，再长就强切（否则一句能憋一分钟）
+MIN_SEG_SEC = 0.40        # 短于这个不单独转，等下一句一起
+
+
+def _np():
+    import numpy
+    return numpy
+
+
+def _pcm16_to_f32(data):
+    """前端送的是 Int16 小端裸 PCM。除以 32768 回到 [-1,1]。"""
+    np = _np()
+    a = np.frombuffer(data, dtype="<i2")
+    return (a.astype("float32") / 32768.0)
+
+
+def _down(a, src, dst=SAMPLE_RATE):
+    """降采样。只做整数倍（48k→16k 是 3），三点平均当低通，比直接抽点干净。"""
+    np = _np()
+    if src == dst or not len(a):
+        return a
+    if src % dst == 0:
+        k = src // dst
+        n = len(a) // k
+        if n <= 0:
+            return a[:0]
+        return a[: n * k].reshape(n, k).mean(axis=1)
+    # 非整数倍：线性插值（本项目只可能遇到 44.1k 这种，粗糙够用）
+    n = int(len(a) * dst / src)
+    if n <= 0:
+        return a[:0]
+    idx = (np.arange(n) * (src / dst)).astype("int64")
+    idx = np.clip(idx, 0, len(a) - 1)
+    return a[idx]
+
+
+def _sweep_live():
+    """清掉久不动的会话。没有这一步，关页面不走 finish 的会话会一直挂着。"""
+    now = time.time()
+    dead = [k for k, v in _LIVE.items() if now - v["ts"] > LIVE_TTL]
+    for k in dead:
+        _LIVE.pop(k, None)
+
+
+def _live_new(sid):
+    st = {"buf": [], "n": 0, "seg_from": 0, "silence_ms": 0.0,
+          "has_voice": False, "ts": time.time(), "text": ""}
+    _LIVE[sid] = st
+    return st
+
+
+def live_start(sid):
+    if not _files_ok(MODEL_DIR):
+        return {"ok": False, "error": "还没装语音模型", "need_setup": True}
+    with _LIVE_LOCK:
+        _sweep_live()
+        _live_new(sid)
+    # 后台先把模型读进内存：从「按下麦克风」到「说出第一句」有一两秒，
+    # 正好够加载。不然第一句要等模型读完才出字，感觉像卡住了。
+    if _MODEL is None:
+        def _warm():
+            try:
+                load()
+            except Exception:
+                pass
+        threading.Thread(target=_warm, daemon=True, name="asr-warm").start()
+    return {"ok": True, "say": "可以说了", "warm": _MODEL is not None}
+
+
+def _seg_text(audio):
+    """把一段音频转成文字。跟 transcribe() 共用同一套模型和参数。"""
+    try:
+        m = load()
+    except Exception as e:
+        return "", "模型加载失败：%s" % e
+    use_vad = _vad_ok()
+    try:
+        segs, _info = m.transcribe(
+            audio,
+            language="zh",
+            beam_size=5,
+            vad_filter=use_vad,
+            vad_parameters={"min_silence_duration_ms": 500} if use_vad else None,
+            initial_prompt="以下是普通话的句子，用简体中文。",
+            condition_on_previous_text=False,
+            no_speech_threshold=0.6,
+        )
+        parts = [(s.text or "").strip() for s in segs]
+    except Exception as e:
+        return "", "转写失败：%s" % e
+    return _norm_punct("".join(parts).strip()), ""
+
+
+def live_feed(sid, data, src_rate=48000):
+    """收一块音频，够一句就转出来。
+
+    返回的 text 是「这一块新出的字」（可能是几句，也可能空）——
+    前端只管往后接，不用理解分段。
+    """
+    if not _files_ok(MODEL_DIR):
+        return {"ok": False, "error": "还没装语音模型", "need_setup": True, "text": ""}
+    np = _np()
+    try:
+        a = _pcm16_to_f32(data)
+    except Exception:
+        return {"ok": False, "error": "音频块解不开", "text": ""}
+    if src_rate != SAMPLE_RATE:
+        a = _down(a, src_rate)
+    if not len(a):
+        return {"ok": True, "text": "", "cut": False}
+
+    rms = float(np.sqrt(np.mean(a * a)) + 1e-12)
+    with _LIVE_LOCK:
+        st = _LIVE.get(sid)
+        if st is None:
+            st = _live_new(sid)
+        st["buf"].append(a)
+        st["n"] += len(a)
+        st["ts"] = time.time()
+        if rms < SILENCE_RMS:
+            st["silence_ms"] += len(a) * 1000.0 / SAMPLE_RATE
+        else:
+            st["silence_ms"] = 0.0
+            if rms >= VOICE_RMS:
+                st["has_voice"] = True
+
+        seg_len = (st["n"] - st["seg_from"]) / float(SAMPLE_RATE)
+        quiet_cut = st["has_voice"] and st["silence_ms"] >= SILENCE_CUT_MS
+        long_cut = seg_len >= MAX_SEG_SEC
+        if not (quiet_cut or long_cut):
+            return {"ok": True, "text": "", "cut": False, "rms": round(rms, 4)}
+
+        if not st["has_voice"]:
+            # 一直没人说话：整段丢掉，只留最后一点，免得缓冲无限长
+            keep = int(0.3 * SAMPLE_RATE)
+            joined = np.concatenate(st["buf"]) if st["buf"] else a[:0]
+            st["buf"] = [joined[-keep:]] if len(joined) > keep else [joined]
+            st["n"] = len(st["buf"][0]) if st["buf"] else 0
+            st["seg_from"] = 0
+            st["silence_ms"] = 0.0
+            return {"ok": True, "text": "", "cut": False, "rms": round(rms, 4)}
+
+        joined = np.concatenate(st["buf"]) if len(st["buf"]) > 1 else st["buf"][0]
+        piece = joined[st["seg_from"]:]
+        st["buf"] = []
+        st["n"] = 0
+        st["seg_from"] = 0
+        st["silence_ms"] = 0.0
+        st["has_voice"] = False
+
+    dur = len(piece) / float(SAMPLE_RATE)
+    if dur < MIN_SEG_SEC:
+        return {"ok": True, "text": "", "cut": False, "seg_sec": round(dur, 2)}
+
+    t0 = time.time()
+    txt, err = _seg_text(piece)
+    took = time.time() - t0
+    if err:
+        return {"ok": False, "error": err, "text": "", "seg_sec": round(dur, 2)}
+    with _LIVE_LOCK:
+        if sid in _LIVE:
+            _LIVE[sid]["text"] += txt
+    return {"ok": True, "text": txt, "cut": True, "seg_sec": round(dur, 2),
+            "took": round(took, 2)}
+
+
+def live_finish(sid):
+    """停止：把还没切出去的最后半句转掉。"""
+    with _LIVE_LOCK:
+        st = _LIVE.pop(sid, None)
+    if not st or not st["has_voice"] and not st["buf"]:
+        return {"ok": True, "text": "", "rest": True}
+    np = _np()
+    joined = np.concatenate(st["buf"]) if len(st["buf"]) > 1 else (
+        st["buf"][0] if st["buf"] else np.zeros(0, dtype="float32"))
+    piece = joined[st["seg_from"]:]
+    dur = len(piece) / float(SAMPLE_RATE)
+    if dur < MIN_SEG_SEC:
+        return {"ok": True, "text": "", "rest": True, "seg_sec": round(dur, 2)}
+    txt, err = _seg_text(piece)
+    if err:
+        return {"ok": False, "error": err, "text": ""}
+    return {"ok": True, "text": txt, "rest": True, "seg_sec": round(dur, 2),
+            "full": st["text"] + txt}

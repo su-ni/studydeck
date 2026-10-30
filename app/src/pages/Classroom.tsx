@@ -98,8 +98,14 @@ export function Classroom({ base, goCanvas, initSid }: {
      现在右上角一个下拉，1080P / 720P / 480P；选了存本机（play.qn），下一讲直接生效。
      不同画质是两份独立缓存 —— 切一次要重新合，所以切完要明说「在准备」。 */
   const pq = useTool<{ qn: number; name: string; logged_in: boolean }>('play_quality')
-  const [qn, setQn] = useState(0)
-  useEffect(() => { if (pq.data?.qn) setQn((v) => v || pq.data!.qn) }, [pq.data?.qn])
+  /* 先读 localStorage 再等工具回来校正：不这样的话，进课堂那一瞬间下拉会先写成
+     720P 再跳 1080P —— 一闪而过，看着像设置没生效。 */
+  const [qn, setQn] = useState(() => Number(localStorage.getItem('sd.qn') || 0))
+  useEffect(() => {
+    if (!pq.data?.qn) return
+    setQn(pq.data.qn)
+    localStorage.setItem('sd.qn', String(pq.data.qn))
+  }, [pq.data?.qn])
   async function pickQn(v: string) {
     const n = Number(v) || 0
     const r = await callTool('play_quality', { qn: n })
@@ -107,6 +113,7 @@ export function Classroom({ base, goCanvas, initSid }: {
     const t = vid.current?.currentTime || 0
     resumeAt.current = t
     setQn(n)
+    localStorage.setItem('sd.qn', String(n))
     setStarted(false); setBuf(true)
     pq.run()
     setShotMsg('画质切到 ' + (r.data?.name || n) + '，正在准备这一档')
@@ -383,6 +390,19 @@ export function Classroom({ base, goCanvas, initSid }: {
               {armed ? '再点一次确认' : '标记看完'}
             </button>
           )}
+          {/* 画质放工具栏，不浮在画面角上：浮在视频上那版实测几乎看不见 ——
+              深色底压在深色画面上，人根本不知道那里能点。 */}
+          {les?.local ? null : (
+            <Sel ariaLabel="画质"
+              value={String(qn || pq.data?.qn || 64)}
+              onChange={pickQn}
+              style={{ width: 104 }}
+              options={[
+                { value: '80', label: '1080P', disabled: !pq.data?.logged_in },
+                { value: '64', label: '720P', disabled: !pq.data?.logged_in },
+                { value: '32', label: '480P' },
+              ]} />
+          )}
           <span style={{ marginLeft: 'auto' }}><BiliLogin compact /></span>
         </div>
 
@@ -459,20 +479,6 @@ export function Classroom({ base, goCanvas, initSid }: {
                   <Icon n="fit" size={14} />退出影院
                 </button>
               ) : null}
-              {/* 画质：右上角常显。它是「现在是什么」而不是「点一下干什么」，
-                  所以不做成 hover 才出现的那种控件 —— 想换的时候得先找。 */}
-              {les?.local ? null : (
-                <div className="vqsel">
-                  <Sel ariaLabel="画质"
-                    value={String(qn || pq.data?.qn || 64)}
-                    onChange={pickQn}
-                    options={[
-                      { value: '80', label: '1080P', disabled: !pq.data?.logged_in },
-                      { value: '64', label: '720P', disabled: !pq.data?.logged_in },
-                      { value: '32', label: '480P' },
-                    ]} />
-                </div>
-              )}
               {/* 「影院」：自己接管全屏，不用浏览器原生那个。
                   原生全屏里键盘事件不再传给页面，S 就废了 —— 而截帧恰恰常在
                   放大看的时候最想用。这颗按钮进的是 .cls2-theater（整页铺满、
