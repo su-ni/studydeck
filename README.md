@@ -8,12 +8,6 @@ AI Native 学习工作台。前端是界面，后端是 AI 接入层与本机数
 | 后端 | Python 3.11+ / FastAPI + SQLite |
 | 形态 | 单机 Web 应用（127.0.0.1:8770） |
 
-<p align="center">
-  <img src="screenshots/01-course-home.jpg" width="31%" alt="课程主页" />
-  <img src="screenshots/02-classroom.jpg" width="31%" alt="课堂" />
-  <img src="screenshots/03-practice.jpg" width="31%" alt="练习" />
-</p>
-
 ## 架构
 
 ```
@@ -51,10 +45,8 @@ python -m server.main                                    # 或双击 start.bat
 app/        前端源码（React + TS，Vite 构建到 ../web/app-dist）
 server/     FastAPI：agent / tools / model_router / evidence / store
 web/        静态资源
-tests/      无头探针与单测
-screenshots/  界面截图
 ```
 
 ## 许可
 
-个人项目，仅限学习交流使用。第三方组件许可见源码内标注。
+个人项目，仅限学习交流使用。
