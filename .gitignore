@@ -52,3 +52,12 @@ server/config.blank.json
 # 一次性探针（含明文 access_token，本地留存，绝不入库）
 build/
 _probe_*.py
+
+# 本机一次性脚本与备份（不入库）
+_t*.py
+_thumb_*.txt
+*.bak
+start_blank*
+start_main.py
+start_bg.ps1
+restart_all.ps1
